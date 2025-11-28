@@ -1,19 +1,18 @@
 <x-app-layout>
     <x-slot name="header">
-        <div class="flex justify-between items-center">
-            <h2 class="font-semibold text-xl text-slate-800 leading-tight">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-semibold leading-tight text-slate-800">
                 {{ __('Water Monitoring System') }}
             </h2>
 
             <!-- INDICATOR LIVE CONNECTION -->
-            <div class="text-sm flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 transition-colors duration-500" id="conn-container">
-                <span class="relative flex h-3 w-3">
-                  <!-- Ping Animation (Blinking) -->
-                  <span id="conn-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <!-- Static Dot -->
-                  <span id="conn-dot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 transition-colors duration-500"></span>
+            <!-- Berubah warna/status berdasarkan data terakhir dari sensor -->
+            <div class="flex items-center gap-2 px-3 py-1 text-sm transition-colors duration-500 border rounded-full bg-slate-100 border-slate-200" id="conn-container">
+                <span class="relative flex w-3 h-3">
+                  <span id="conn-ping" class="absolute inline-flex hidden w-full h-full rounded-full opacity-75 animate-ping bg-emerald-400"></span>
+                  <span id="conn-dot" class="relative inline-flex w-3 h-3 transition-colors duration-500 rounded-full bg-slate-400"></span>
                 </span>
-                <span id="conn-text" class="font-medium text-slate-600 transition-colors duration-500">Connecting...</span>
+                <span id="conn-text" class="font-medium transition-colors duration-500 text-slate-500">Connecting...</span>
             </div>
         </div>
     </x-slot>
@@ -21,132 +20,148 @@
     <!-- Load Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <div class="py-12 bg-slate-50 min-h-screen">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="min-h-screen py-12 bg-slate-50">
+        <div class="mx-auto space-y-6 max-w-7xl sm:px-6 lg:px-8">
 
             <!-- ROW 1: STATUS CARDS -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
 
-                <!-- Card 1: Water Level -->
-                <div class="bg-white overflow-hidden shadow-sm sm:rounded-2xl border-b-4 border-cyan-500 p-6 transition hover:-translate-y-1 duration-300">
-                    <div class="flex justify-between items-start">
+                <!-- Card 1: Water Level (DINAMIS UPDATE) -->
+                <div class="relative p-6 overflow-hidden transition duration-300 bg-white border-b-4 shadow-sm sm:rounded-2xl border-cyan-500 hover:-translate-y-1 group">
+                    <div class="flex items-start justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Level Air</p>
-                            <h3 class="text-3xl font-bold text-slate-800 mt-2">
+                            <p class="text-xs font-bold tracking-wider uppercase text-slate-400">Level Air</p>
+                            <h3 class="flex items-end gap-1 mt-2 text-3xl font-bold text-slate-800">
                                 <span id="val-level">0</span><span class="text-lg text-slate-500">%</span>
                             </h3>
+
+                            <!-- INDIKATOR FLOW (MENGISI/BERKURANG) -->
+                            <!-- Ini akan berubah warna & teks lewat Javascript -->
+                            <div id="flow-indicator" class="mt-1 inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 transition-all duration-500">
+                                <span id="flow-icon">▬</span>
+                                <span id="flow-text">Stabil</span>
+                            </div>
+
                         </div>
-                        <div class="p-3 bg-cyan-50 rounded-xl text-cyan-600">
-                            <!-- Icon Water -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div class="p-3 transition-colors duration-500 bg-cyan-50 rounded-xl text-cyan-600" id="level-icon-bg">
+                            <!-- Icon Water Drop -->
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                             </svg>
                         </div>
                     </div>
-                    <div class="mt-4 w-full bg-slate-100 rounded-full h-2.5">
-                        <div id="bar-level" class="bg-cyan-500 h-2.5 rounded-full transition-all duration-1000" style="width: 0%"></div>
+
+                    <!-- Progress Bar -->
+                    <div class="mt-4 w-full bg-slate-100 rounded-full h-2.5 overflow-hidden relative">
+                        <div id="bar-level" class="bg-cyan-500 h-2.5 rounded-full transition-all duration-1000 relative overflow-hidden" style="width: 0%">
+                             <!-- Efek Shimmer/Kilap (Muncul saat mengisi) -->
+                             <div id="bar-shimmer" class="absolute top-0 left-0 w-full h-full transition-opacity duration-300 -translate-x-full opacity-0 bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Card 2: Status -->
-                <div class="bg-white overflow-hidden shadow-sm sm:rounded-2xl border-b-4 border-emerald-500 p-6 transition hover:-translate-y-1 duration-300">
-                    <div class="flex justify-between items-start">
+                <!-- Card 2: Status Tangki -->
+                <div class="p-6 overflow-hidden transition duration-300 bg-white border-b-4 shadow-sm sm:rounded-2xl border-emerald-500 hover:-translate-y-1">
+                    <div class="flex items-start justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Status Tangki</p>
-                            <h3 class="text-2xl font-bold text-emerald-600 mt-2" id="val-status">
+                            <p class="text-xs font-bold tracking-wider uppercase text-slate-400">Status Tangki</p>
+                            <h3 class="mt-2 text-2xl font-bold text-emerald-600" id="val-status">
                                 Memuat...
                             </h3>
                         </div>
                         <div class="p-3 bg-emerald-50 rounded-xl text-emerald-600">
                             <!-- Icon Shield -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500 mt-4">Kondisi saat ini</p>
+                    <p class="mt-4 text-xs text-slate-500">Kondisi operasional</p>
                 </div>
 
                 <!-- Card 3: Prediksi Waktu -->
-                <div class="bg-white overflow-hidden shadow-sm sm:rounded-2xl border-b-4 border-violet-500 p-6 transition hover:-translate-y-1 duration-300">
-                    <div class="flex justify-between items-start">
+                <div class="p-6 overflow-hidden transition duration-300 bg-white border-b-4 shadow-sm sm:rounded-2xl border-violet-500 hover:-translate-y-1">
+                    <div class="flex items-start justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimasi Habis</p>
-                            <h3 class="text-2xl font-bold text-violet-600 mt-2" id="val-time">
+                            <p class="text-xs font-bold tracking-wider uppercase text-slate-400">Estimasi Waktu</p>
+                            <h3 class="mt-2 text-2xl font-bold text-violet-600" id="val-time">
                                 -- Jam
                             </h3>
                         </div>
                         <div class="p-3 bg-violet-50 rounded-xl text-violet-600">
                             <!-- Icon Clock -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500 mt-4">Prediksi AI (LightGBM)</p>
+                    <p class="mt-4 text-xs text-slate-500">Prediksi AI / Pompa</p>
                 </div>
 
                 <!-- Card 4: Kekeruhan -->
-                <div class="bg-white overflow-hidden shadow-sm sm:rounded-2xl border-b-4 border-amber-500 p-6 transition hover:-translate-y-1 duration-300">
-                    <div class="flex justify-between items-start">
+                <div class="p-6 overflow-hidden transition duration-300 bg-white border-b-4 shadow-sm sm:rounded-2xl border-amber-500 hover:-translate-y-1">
+                    <div class="flex items-start justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Kualitas Air</p>
-                            <h3 class="text-2xl font-bold text-amber-600 mt-2" id="val-turbidity">
+                            <p class="text-xs font-bold tracking-wider uppercase text-slate-400">Kualitas Air</p>
+                            <h3 class="mt-2 text-2xl font-bold text-amber-600" id="val-turbidity">
                                 --
                             </h3>
                         </div>
                         <div class="p-3 bg-amber-50 rounded-xl text-amber-600">
                             <!-- Icon Eye -->
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
                         </div>
                     </div>
-                    <p class="text-xs text-slate-500 mt-4" id="val-turbidity-raw">Voltage: 0V</p>
+                    <p class="mt-4 text-xs text-slate-500" id="val-turbidity-raw">Voltage: 0V</p>
                 </div>
             </div>
 
             <!-- ROW 2: CHARTS -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <!-- Main Chart -->
-                <div class="bg-white p-6 rounded-2xl shadow-sm lg:col-span-2">
-                    <div class="flex justify-between items-center mb-4">
+                <div class="p-6 bg-white border shadow-sm rounded-2xl lg:col-span-2 border-slate-100">
+                    <div class="flex items-center justify-between mb-4">
                         <h3 class="text-lg font-bold text-slate-700">Grafik Level & Prediksi</h3>
-                        <span class="text-xs px-2 py-1 bg-slate-100 rounded text-slate-500">Realtime</span>
+                        <span class="px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-500">Realtime Update</span>
                     </div>
-                    <div class="relative h-72 w-full">
+                    <div class="relative w-full h-72">
                         <canvas id="mainChart"></canvas>
                     </div>
                 </div>
 
                 <!-- AI Performance / ML Stats -->
-                <div class="bg-white p-6 rounded-2xl shadow-sm flex flex-col justify-between">
+                <div class="flex flex-col justify-between p-6 bg-white border shadow-sm rounded-2xl border-slate-100">
                     <div>
-                        <h3 class="text-lg font-bold text-slate-700 mb-1">Performa AI Model</h3>
-                        <p class="text-sm text-slate-500 mb-6">Metrik evaluasi LightGBM terbaru.</p>
+                        <div class="flex items-center gap-2 mb-1">
+                            <h3 class="text-lg font-bold text-slate-700">Performa AI Model</h3>
+                            <span class="bg-violet-100 text-violet-600 text-[10px] px-2 py-0.5 rounded-full font-bold">LightGBM</span>
+                        </div>
+                        <p class="mb-6 text-sm text-slate-500">Metrik evaluasi pelatihan terakhir.</p>
 
                         <div class="space-y-4">
                             <!-- Metric 1 -->
-                            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                                <span class="text-slate-500 text-sm">RMSE (Error Rate)</span>
+                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                                <span class="text-sm text-slate-500">RMSE (Error Rate)</span>
                                 <span class="font-mono font-bold text-rose-500" id="ml-rmse">0.000</span>
                             </div>
                             <!-- Metric 2 -->
-                            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                                <span class="text-slate-500 text-sm">R² Score (Akurasi)</span>
+                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                                <span class="text-sm text-slate-500">R² Score (Akurasi)</span>
                                 <span class="font-mono font-bold text-emerald-500" id="ml-r2">0.000</span>
                             </div>
                             <!-- Metric 3 -->
-                            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                                <span class="text-slate-500 text-sm">Training Time</span>
+                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                                <span class="text-sm text-slate-500">Training Time</span>
                                 <span class="font-mono font-bold text-blue-500" id="ml-time">0s</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="mt-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <p class="text-xs text-slate-400 mb-1">Terakhir dilatih:</p>
+                    <div class="p-4 mt-6 border bg-slate-50 rounded-xl border-slate-200">
+                        <p class="mb-1 text-xs text-slate-400">Terakhir dilatih:</p>
                         <p class="text-sm font-semibold text-slate-700" id="ml-last-update">-</p>
                     </div>
                 </div>
@@ -178,19 +193,19 @@
                             backgroundColor: CHART_COLORS.level,
                             borderWidth: 2,
                             fill: true,
-                            tension: 0.4, // Buat garis melengkung halus
+                            tension: 0.4,
                             pointRadius: 2
                         },
                         {
-                            label: 'Laju Pengurangan (%/jam)',
+                            label: 'Laju Perubahan (%/jam)',
                             data: [],
                             borderColor: CHART_COLORS.rate,
                             borderWidth: 1,
-                            borderDash: [5, 5], // Garis putus-putus
+                            borderDash: [5, 5],
                             fill: false,
                             tension: 0.4,
                             pointRadius: 0,
-                            yAxisID: 'y1' // Sumbu Y kedua di kanan
+                            yAxisID: 'y1'
                         }
                     ]
                 },
@@ -232,12 +247,55 @@
                     const response = await fetch("{{ route('dashboard.stats') }}");
                     const data = await response.json();
 
-                    // Update DOM Elements
+                    // --- UPDATE KARTU LEVEL AIR ---
                     document.getElementById('val-level').innerText = data.water_level;
-                    document.getElementById('bar-level').style.width = data.water_level + '%';
+                    const barLevel = document.getElementById('bar-level');
+                    barLevel.style.width = data.water_level + '%';
 
+                    // Logic Indikator Flow (Mengisi / Berkurang / Stabil)
+                    const flowInd = document.getElementById('flow-indicator');
+                    const flowIcon = document.getElementById('flow-icon');
+                    const flowText = document.getElementById('flow-text');
+                    const iconBg = document.getElementById('level-icon-bg');
+                    const shimmer = document.getElementById('bar-shimmer');
+
+                    // Reset Class sebelum di-set ulang
+                    flowInd.className = "mt-1 inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full transition-all duration-500";
+                    shimmer.classList.remove('animate-shimmer');
+                    shimmer.classList.add('opacity-0');
+
+                    if (data.flow_status === 'MENGISI') {
+                        // Gaya Hijau (Emerald)
+                        flowInd.classList.add('bg-emerald-100', 'text-emerald-600');
+                        flowIcon.innerHTML = "▲"; // Panah Atas
+                        flowText.innerText = "Mengisi (" + parseFloat(data.flow_rate).toFixed(1) + "%)";
+                        iconBg.className = "p-3 bg-emerald-50 rounded-xl text-emerald-600 transition-colors duration-500";
+                        barLevel.className = "bg-emerald-500 h-2.5 rounded-full transition-all duration-1000 relative overflow-hidden";
+
+                        // Efek Shimmer saat mengisi (Penting)
+                        shimmer.classList.remove('opacity-0');
+                        shimmer.classList.add('animate-shimmer', 'opacity-50');
+
+                    } else if (data.flow_status === 'BERKURANG') {
+                        // Gaya Merah/Orange (Rose)
+                        flowInd.classList.add('bg-rose-100', 'text-rose-600');
+                        flowIcon.innerHTML = "▼"; // Panah Bawah
+                        flowText.innerText = "Berkurang (" + parseFloat(data.flow_rate).toFixed(1) + "%)";
+                        iconBg.className = "p-3 bg-rose-50 rounded-xl text-rose-600 transition-colors duration-500";
+                        barLevel.className = "bg-rose-500 h-2.5 rounded-full transition-all duration-1000 relative";
+
+                    } else {
+                        // Gaya Stabil (Slate/Cyan default)
+                        flowInd.classList.add('bg-slate-100', 'text-slate-500');
+                        flowIcon.innerHTML = "▬"; // Strip
+                        flowText.innerText = "Stabil";
+                        iconBg.className = "p-3 bg-cyan-50 rounded-xl text-cyan-600 transition-colors duration-500";
+                        barLevel.className = "bg-cyan-500 h-2.5 rounded-full transition-all duration-1000 relative";
+                    }
+
+
+                    // --- UPDATE KARTU LAIN ---
                     document.getElementById('val-status').innerText = data.status_air;
-                    // Ubah warna status dinamis
                     const statusEl = document.getElementById('val-status');
                     if(data.status_air === 'KRITIS') statusEl.className = "text-2xl font-bold text-rose-600 mt-2";
                     else if(data.status_air === 'Waspada') statusEl.className = "text-2xl font-bold text-amber-500 mt-2";
@@ -247,27 +305,26 @@
                     document.getElementById('val-turbidity').innerText = data.status_keruh;
                     document.getElementById('val-turbidity-raw').innerText = 'Raw Turbidity: ' + data.turbidity;
 
-                    // --- LOGIKA INDIKATOR KONEKSI BARU ---
+                    // --- UPDATE INDIKATOR KONEKSI ---
                     const pingEl = document.getElementById('conn-ping');
                     const dotEl = document.getElementById('conn-dot');
                     const textEl = document.getElementById('conn-text');
                     const containerEl = document.getElementById('conn-container');
 
-                    // Ambang batas: Jika data terakhir > 60 detik yang lalu, anggap Offline
                     const secondsAgo = data.last_seen_seconds;
 
                     if (secondsAgo < 60) {
-                        // LIVE / ONLINE
-                        pingEl.classList.remove('hidden'); // Kedip-kedip nyala
+                        // ONLINE
+                        pingEl.classList.remove('hidden');
                         dotEl.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500 transition-colors duration-500";
                         textEl.innerText = "Live Connection";
                         textEl.className = "font-medium text-emerald-600 transition-colors duration-500";
                         containerEl.className = "text-sm flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-100 transition-colors duration-500";
                     } else {
                         // OFFLINE
-                        pingEl.classList.add('hidden'); // Matikan kedip-kedip
-                        dotEl.className = "relative inline-flex rounded-full h-3 w-3 bg-slate-400 transition-colors duration-500"; // Dot abu-abu
-                        textEl.innerText = "Offline (" + data.updated_at + ")"; // Tampilkan kapan terakhir on
+                        pingEl.classList.add('hidden');
+                        dotEl.className = "relative inline-flex rounded-full h-3 w-3 bg-slate-400 transition-colors duration-500";
+                        textEl.innerText = "Offline (" + data.updated_at + ")";
                         textEl.className = "font-medium text-slate-500 transition-colors duration-500";
                         containerEl.className = "text-sm flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 transition-colors duration-500";
                     }
@@ -308,15 +365,24 @@
             }
 
             // ================= RUN LOOPS =================
-            // Panggil sekali saat load
             fetchStats();
             fetchChart();
             fetchMetrics();
 
-            // Loop update otomatis
-            setInterval(fetchStats, 2000);  // Tiap 2 detik untuk status
-            setInterval(fetchChart, 5000);  // Tiap 5 detik untuk grafik
-            setInterval(fetchMetrics, 10000); // Tiap 10 detik untuk metrik ML
+            setInterval(fetchStats, 2000);
+            setInterval(fetchChart, 5000);
+            setInterval(fetchMetrics, 10000);
         });
     </script>
+
+    <!-- Custom Style untuk Animasi Shimmer -->
+    <style>
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .animate-shimmer {
+            animation: shimmer 1.5s infinite;
+        }
+    </style>
 </x-app-layout>

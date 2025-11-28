@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\HistoryController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -11,8 +12,9 @@ Route::get('/', function () {
 // Grouping semua route yang butuh Login (Auth) & Verifikasi Email
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // 1. Halaman Dashboard Utama (Menggunakan Controller, bukan view static lagi)
+    // 1. Halaman Utama (Menggunakan Controller, bukan view static lagi)
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/history', [HistoryController::class, 'index'])->name('history');
 
     // 2. API Internal untuk AJAX (Data Realtime, Grafik, Metrik)
     // Ini nanti dipanggil oleh JavaScript di dashboard.blade.php

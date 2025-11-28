@@ -15,24 +15,38 @@ class DashboardController extends Controller
      */
     public function index()
     {
-        // Kita kirim data awal biar pas loading gak kosong melompong
         $latest = SensorData::latest()->first();
         return view('dashboard', compact('latest'));
     }
 
     /**
-     * 2. Pengganti 'dashboard_data.php'
-     * API Internal untuk update angka-angka realtime via AJAX
+     * 2. API Internal untuk update angka-angka realtime via AJAX
      */
     public function getStats()
     {
         $latest = SensorData::latest()->first();
         $prediction = Prediction::latest()->first();
 
-        // Hitung status sederhana untuk UI
+        // --- LOGIKA STATUS TANGKI (KRITIS/AMAN) ---
         $statusAir = 'Aman';
         if ($latest && $latest->water_level < 20) $statusAir = 'KRITIS';
         elseif ($latest && $latest->water_level < 50) $statusAir = 'Waspada';
+
+        // --- LOGIKA ALIRAN AIR (MENGISI/BERKURANG) ---
+        // Kita ambil dari depletion_rate.
+        // Rate Positif = Berkurang, Rate Negatif = Nambah.
+        $rate = $latest->depletion_rate ?? 0;
+        $flowStatus = 'STABIL';
+
+        // Threshold 0.5% agar noise sensor tidak dianggap perubahan
+        if ($rate < -0.5) {
+            $flowStatus = 'MENGISI';
+        } elseif ($rate > 0.5) {
+            $flowStatus = 'BERKURANG';
+        }
+
+        // Hitung selisih waktu untuk indikator koneksi
+        $lastSeenSeconds = $latest ? $latest->created_at->diffInSeconds(now()) : 999999;
 
         return response()->json([
             'water_level' => $latest->water_level ?? 0,
@@ -43,24 +57,25 @@ class DashboardController extends Controller
             'prediksi_jam'=> $prediction->predicted_hours ?? 0,
             'waktu_habis' => $prediction->time_remaining ?? '-',
             'updated_at'  => $latest ? $latest->created_at->diffForHumans() : '-',
+            'last_seen_seconds' => $lastSeenSeconds,
+            // Data Baru untuk UI Dinamis
+            'flow_status' => $flowStatus,
+            'flow_rate'   => abs($rate) // Kita kirim angka mutlak biar gak ada minus di UI
         ]);
     }
 
     /**
-     * 3. Pengganti 'get_prediction.php'
-     * API Internal untuk data Grafik Line Chart (Level Air vs Prediksi)
+     * 3. API Internal untuk data Grafik Line Chart
      */
     public function getChartData()
     {
-        // Ambil 50 data terakhir untuk grafik
         $data = SensorData::with('prediction')
                 ->latest()
                 ->take(50)
                 ->get()
-                ->sortBy('id') // Urutkan biar grafik dari kiri ke kanan (lama ke baru)
-                ->values(); // Reset array keys
+                ->sortBy('id')
+                ->values();
 
-        // Format data agar mudah dibaca Chart.js / ApexCharts
         $labels = $data->pluck('created_at')->map(fn($date) => $date->format('H:i'));
         $levels = $data->pluck('water_level');
         $predictions = $data->map(fn($item) => $item->prediction->predicted_rate ?? 0);
@@ -73,8 +88,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * 4. Pengganti 'get_metric.php'
-     * API Internal untuk menampilkan performa ML (RMSE, R2 Score)
+     * 4. API Internal untuk performa ML
      */
     public function getMetrics()
     {

@@ -11,56 +11,51 @@ use Carbon\Carbon;
 class SensorController extends Controller
 {
     /**
-     * Menyimpan data sensor dari ESP32 dan mengembalikan prediksi terakhir.
+     * Endpoint API untuk menerima data dari ESP32.
+     * Method: POST
      */
     public function store(Request $request)
     {
         // 1. Validasi Input
-        // Memastikan data yang dikirim ESP32 lengkap dan berupa angka
         $validated = $request->validate([
             'turbidity' => 'required|numeric',
             'distance'  => 'required|numeric',
-            'water_level' => 'required|numeric', // ESP32 mengirim 0-100
+            'water_level' => 'required|numeric', // 0-100
         ]);
 
         // 2. Tentukan Status Kekeruhan
-        // Logika sederhana berdasarkan tegangan sensor (sesuai kode .ino kamu)
+        // Logika update: >1.57 Jernih, >1.5 Agak Keruh, <1.5 Keruh
         $voltage = $validated['turbidity'];
         $status = 'KERUH'; // Default
 
-        if ($voltage > 1.58) {
+        if ($voltage > 1.57) {
             $status = 'JERNIH';
         } else if ($voltage > 1.5) {
             $status = 'AGAK KERUH';
         }
 
-        // 3. Hitung Depletion Rate (Laju Pengurangan Air)
-        // Ini PENTING: Python butuh data ini untuk training model LightGBM.
-        // Rumus: (Level Lama - Level Baru) / Selisih Waktu (Jam)
+        // 3. Hitung Rate (Laju Perubahan Air)
+        // REVISI: Kita hapus pengecekan "levelDiff > 0".
+        // Sekarang kita izinkan hasil negatif untuk mendeteksi pengisian air.
 
-        $latestData = SensorData::orderBy('id', 'desc')->first();
-        $depletionRate = 0; // Default 0 jika data pertama atau air sedang diisi
+        $latestData = SensorData::latest()->first();
+        $depletionRate = 0;
 
         if ($latestData) {
+            // Rumus: Level Lama - Level Baru
+            // Hasil Positif (+) = Air Berkurang (Draining) -> Python pakai ML
+            // Hasil Negatif (-) = Air Bertambah (Refilling) -> Python pakai Math
             $levelDiff = $latestData->water_level - $validated['water_level'];
 
-            // Hitung selisih waktu dalam jam menggunakan Carbon
-            // Parse timestamp manual dari database jika perlu, atau gunakan created_at
             $lastTime = Carbon::parse($latestData->created_at);
             $now = Carbon::now();
 
-            // diffInHours(..., true) mengembalikan float (misal 0.05 jam), bukan pembulatan
+            // Hitung selisih waktu (float jam)
             $hoursDiff = $lastTime->diffInHours($now, true);
 
-            // Kita hanya hitung rate jika:
-            // a. Ada selisih waktu yang masuk akal (> 0.001 jam)
-            // b. Level air BERKURANG (positif). Jika negatif artinya air sedang diisi.
-            if ($hoursDiff > 0.001 && $levelDiff > 0) {
-                // Rate = % per jam
+            // Hitung rate asalkan ada selisih waktu yang masuk akal
+            if ($hoursDiff > 0.001) {
                 $depletionRate = $levelDiff / $hoursDiff;
-
-                // Opsional: Batasi rate agar tidak gila (misal max 500%/jam) untuk membuang noise
-                if ($depletionRate > 500) $depletionRate = 0;
             }
         }
 
@@ -70,49 +65,31 @@ class SensorController extends Controller
             'distance'         => $validated['distance'],
             'water_level'      => $validated['water_level'],
             'turbidity_status' => $status,
-            'depletion_rate'   => $depletionRate,
-            // Timestamp otomatis diisi Laravel (created_at),
-            // tapi kita juga isi kolom 'timestamp' manual agar kompatibel dgn script Python lama
+            'depletion_rate'   => $depletionRate, // Bisa (+) atau (-)
             'timestamp'        => now(),
         ]);
 
-        // 5. Ambil Prediksi TERAKHIR dari Worker Python
-        // Kita tidak menunggu Python menghitung sekarang (async), tapi mengambil
-        // hasil hitungan terakhir yang sudah tersimpan di tabel predictions.
+        // 5. Ambil Prediksi TERAKHIR dari Database
+        // Ini hasil hitungan Python Worker (bisa "Habis dlm..." atau "Penuh dlm...")
         $lastPrediction = Prediction::latest()->first();
 
-        // Siapkan nilai default jika belum ada prediksi sama sekali
         $predHours = 0;
         $predTimeMsg = "Menghitung...";
 
         if ($lastPrediction) {
             $predHours = $lastPrediction->predicted_hours;
-            // Gunakan pesan waktu dari DB jika ada, atau buat sendiri
-            $predTimeMsg = $lastPrediction->time_remaining ?? $this->formatHours($predHours);
+            // Kita prioritaskan pesan teks yang sudah diformat oleh Python
+            $predTimeMsg = $lastPrediction->time_remaining ?? "Menghitung...";
         }
 
         // 6. Return JSON ke ESP32
-        // Format ini harus sesuai dengan yang diharapkan oleh kode Arduino kamu
         return response()->json([
             'status'          => 'success',
-            'message'         => 'Data recorded successfully',
+            'message'         => 'Data recorded',
             'data_id'         => $sensor->id,
-            // Data penting untuk ditampilkan di OLED ESP32:
+            // Data ini yang akan diambil ESP32 untuk ditampilkan di OLED
             'predicted_hours' => $predHours,
             'time'            => $predTimeMsg,
         ], 200);
-    }
-
-    /**
-     * Helper kecil untuk memformat jam ke teks manusia (backup jika DB kosong)
-     */
-    private function formatHours($hours)
-    {
-        if ($hours < 1) {
-            return round($hours * 60) . " menit";
-        }
-        $h = floor($hours);
-        $m = round(($hours - $h) * 60);
-        return "{$h} jam {$m} menit";
     }
 }
