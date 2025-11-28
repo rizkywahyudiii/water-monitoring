@@ -44,11 +44,6 @@
                             {{ __('Profile') }}
                         </x-dropdown-link>
 
-                        <!-- Dark Mode Toggle (Opsional) -->
-                        {{-- <button onclick="toggleDarkMode()" class="w-full px-4 py-2 text-sm leading-5 text-left text-gray-700 transition duration-150 ease-in-out hover:bg-gray-100 focus:outline-none focus:bg-gray-100">
-                           🌓 Dark Mode
-                        </button> --}}
-
                         <!-- Authentication -->
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf

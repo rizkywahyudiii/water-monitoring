@@ -12,38 +12,15 @@
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
         <!-- Scripts -->
-        <script>
-            (function() {
-                const html = document.documentElement;
-                const stored = localStorage.getItem('theme');
-                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-                if (stored === 'dark' || (!stored && prefersDark)) {
-                    html.classList.add('dark');
-                } else {
-                    html.classList.remove('dark');
-                }
-
-                window.toggleDarkMode = function() {
-                    html.classList.toggle('dark');
-                    if (html.classList.contains('dark')) {
-                        localStorage.setItem('theme', 'dark');
-                    } else {
-                        localStorage.setItem('theme', 'light');
-                    }
-                };
-            })();
-        </script>
-
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
-    <body class="h-full text-gray-900 bg-white dark:bg-gray-900 dark:text-gray-100">
-        <div class="min-h-screen bg-gray-100 dark:bg-gray-800">
+    <body class="h-full text-gray-900 bg-white">
+        <div class="min-h-screen bg-gray-100">
             @include('layouts.navigation')
 
             <!-- Page Heading -->
             @isset($header)
-                <header class="bg-white dark:bg-gray-800 shadow">
+                <header class="bg-white shadow">
                     <div class="px-4 py-6 mx-auto max-w-7xl sm:px-6 lg:px-8">
                         {{ $header }}
                     </div>
