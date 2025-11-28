@@ -1,10 +1,11 @@
 """
-ML Auto Service v4.0 - Time Aware Prediction
+ML Auto Service v4.1 - Optimized Feature Selection
 Path: water-monitoring/python_scripts/ml_auto_service_v3.py
 
-Update v4.0:
-- Menambahkan fitur 'HOUR' (Jam) ke dalam training model.
-- Akurasi (R2) diharapkan naik drastis karena pola pemakaian air bergantung waktu.
+Update v4.1:
+- MEMBUANG fitur 'turbidity' dan 'distance' dari training (karena turbidity itu random noise di seeder).
+- HANYA menggunakan 'water_level' dan 'hour_of_day' agar model fokus pada pola pemakaian.
+- Tuning Hyperparameter agar lebih agresif (Learning Rate naik, Min Samples turun).
 """
 
 import os
@@ -39,16 +40,24 @@ os.makedirs(STORAGE_PATH, exist_ok=True)
 MODEL_PATH = os.path.join(STORAGE_PATH, "water_depletion_lgbm.joblib")
 SCALER_PATH = os.path.join(STORAGE_PATH, "scaler.joblib")
 
-TRAINING_LIMIT = 1000             # Naikkan limit training biar lebih pintar
+TRAINING_LIMIT = 2000             # Perbanyak data latih
 MIN_SAMPLES = 50
 CHECK_INTERVAL = 5
 RETRAIN_THRESHOLD = 50
-ROLLING_PERCENTILE = 0.95
+ROLLING_PERCENTILE = 0.99         # Hanya buang outlier yg benar-benar ekstrim
 
+# TUNING HYPERPARAMETER (Lebih Agresif)
 LGBM_PARAMS = {
-    'objective': 'regression', 'metric': 'rmse', 'boosting_type': 'gbdt',
-    'num_leaves': 31, 'learning_rate': 0.05, 'feature_fraction': 0.9,
-    'bagging_fraction': 0.8, 'bagging_freq': 5, 'verbose': -1, 'min_child_samples': 20
+    'objective': 'regression',
+    'metric': 'rmse',
+    'boosting_type': 'gbdt',
+    'num_leaves': 63,             # Naikkan complexity (dulu 31)
+    'learning_rate': 0.1,         # Belajar lebih cepat (dulu 0.05)
+    'feature_fraction': 1.0,      # Pakai semua fitur (karena fiturnya dikit)
+    'bagging_fraction': 0.8,
+    'bagging_freq': 5,
+    'verbose': -1,
+    'min_child_samples': 10       # Bisa belajar dari pola kecil (misal jam 3 pagi)
 }
 
 # ===================== DATABASE FUNCTIONS =====================
@@ -64,11 +73,10 @@ def fetch_latest_sensor(conn):
     return row
 
 def fetch_training_data(conn, limit=TRAINING_LIMIT):
-    # UPDATE: Ambil juga jam (HOUR) dari timestamp
+    # UPDATE v4.1: Hapus Turbidity & Distance dari SELECT training
+    # Kita hanya butuh: Level Air, Jam, dan Targetnya (Rate)
     query = """
         SELECT
-            turbidity,
-            distance,
             water_level,
             depletion_rate,
             HOUR(created_at) as hour_of_day
@@ -120,9 +128,9 @@ def prepare_dataset(df):
     upper = df["depletion_rate"].quantile(ROLLING_PERCENTILE)
     if upper > 0: df["depletion_rate"] = df["depletion_rate"].clip(upper=upper)
 
-    # UPDATE: Input Feature tambah 'hour_of_day'
-    # Turbidity sebenarnya kurang relevan utk rate, tapi kita keep aja
-    X = df[["turbidity", "distance", "water_level", "hour_of_day"]]
+    # UPDATE v4.1: Feature Engineering
+    # Input X cuma 2: Level Air & Jam. Ini jauh lebih bersih (anti-noise).
+    X = df[["water_level", "hour_of_day"]]
     y = df["depletion_rate"]
     return X, y
 
@@ -136,16 +144,16 @@ def train_model(X, y):
     train_ds = lgb.Dataset(X_train_s, label=y_train)
     valid_ds = lgb.Dataset(X_test_s, label=y_test, reference=train_ds)
 
-    model = lgb.train(LGBM_PARAMS, train_ds, num_boost_round=300, # Naikkan round
+    model = lgb.train(LGBM_PARAMS, train_ds, num_boost_round=500,
                       valid_sets=[valid_ds],
-                      callbacks=[lgb.early_stopping(stopping_rounds=30, verbose=False)])
+                      callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
 
     y_pred = model.predict(X_test_s, num_iteration=model.best_iteration)
-    mae = mean_absolute_error(y_test, y_pred) # Hitung MAE
+    mae = mean_absolute_error(y_test, y_pred)
     rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
     r2 = r2_score(y_test, y_pred)
 
-    return model, scaler, mae, rmse, r2, len(y), time.time() - start # Return MAE juga
+    return model, scaler, mae, rmse, r2, len(y), time.time() - start
 
 def load_model_disk():
     if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
@@ -164,7 +172,7 @@ def format_time(hours, prefix=""):
 
 # ===================== MAIN PROCESS =====================
 def main():
-    print("🤖 Smart Water Monitor v4.0 (Time Aware)")
+    print("🤖 Smart Water Monitor v4.1 (Optimized Features)")
     print(f"📂 DB Target: {DB_CONFIG['database']}")
 
     current_model, current_scaler = load_model_disk()
@@ -186,8 +194,6 @@ def main():
             # Data Mentah
             raw_rate = float(latest["depletion_rate"] or 0)
             current_level = float(latest["water_level"])
-
-            # Ambil JAM sekarang untuk fitur prediksi
             current_hour = datetime.now().hour
 
             pred_hours = 0
@@ -211,18 +217,16 @@ def main():
             # 2. KASUS MENGURAS (KERAN)
             elif raw_rate > 0.5:
                 if current_model and current_scaler:
-                    # UPDATE: Input array harus ada 4 fitur sekarang
-                    # [turbidity, distance, water_level, hour_of_day]
+                    # UPDATE v4.1: Input array hanya 2 fitur
+                    # [water_level, hour_of_day]
+                    # Turbidity dan Distance DIBUANG dari prediksi ML
                     feats = np.array([[
-                        float(latest["turbidity"]),
-                        float(latest["distance"]),
                         current_level,
-                        float(current_hour) # Fitur Jam Penting!
+                        float(current_hour)
                     ]])
 
                     ml_rate = float(current_model.predict(current_scaler.transform(feats))[0])
 
-                    # Safety check biar gak negatif/nol
                     if ml_rate < 0.1: ml_rate = 0.1
 
                     pred_hours = current_level / ml_rate
@@ -242,19 +246,18 @@ def main():
 
             # === LOGIKA RETRAINING ===
             new_count = count_new_data(conn, last_retrain_id)
-            # Train lebih sering di awal
             if (current_model is None or new_count >= RETRAIN_THRESHOLD):
                 df = fetch_training_data(conn)
                 dataset = prepare_dataset(df)
                 if dataset:
-                    print(f"   🔄 Retraining dengan {len(dataset[0])} data (termasuk fitur Jam)...")
+                    print(f"   🔄 Retraining dengan {len(dataset[0])} data (Clean Features)...")
                     mod, sc, mae, rmse, r2, n, t = train_model(*dataset)
 
                     current_model, current_scaler = mod, sc
                     joblib.dump(mod, MODEL_PATH); joblib.dump(sc, SCALER_PATH)
                     save_model_evaluation(conn, mae, rmse, r2, n, t)
 
-                    print(f"   ✅ Model Updated! R² Score: {r2:.4f} (Target > 0.8)")
+                    print(f"   ✅ Model Updated! R² Score: {r2:.4f}")
                     last_retrain_id = latest["id"]
 
             last_processed_id = latest["id"]
