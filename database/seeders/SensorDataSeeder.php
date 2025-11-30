@@ -13,6 +13,12 @@ class SensorDataSeeder extends Seeder
      */
     public function run(): void
     {
+        // Hapus data lama
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        DB::table('predictions')->truncate();
+        DB::table('sensor_data')->truncate();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+
         // === KONFIGURASI TANGKI MINIATUR ===
         $maxHeight = 14; // cm
         $minHeight = 1;  // cm
