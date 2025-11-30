@@ -46,7 +46,7 @@ DB_CONFIG = {
 # Settings
 CHECK_INTERVAL = 5
 WINDOW_SIZE = 20
-RETRAIN_THRESHOLD = 100
+RETRAIN_THRESHOLD = 10
 
 # ===================== 2. DATABASE HELPER FUNCTIONS =====================
 
