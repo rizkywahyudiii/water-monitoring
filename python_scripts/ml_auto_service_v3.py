@@ -1,11 +1,9 @@
 """
-ML Auto Service v5.0 - Hybrid System (Real-time Trend & Pattern Recognition)
+ML Auto Service v5.1 - Hybrid System + Model Evaluation Storage
 Path: water-monitoring/python_scripts/ml_auto_service_v5.py
 
-Deskripsi:
-1. Menggunakan Linear Regression (Rolling Window) untuk menghitung sisa waktu real-time.
-   - Mengatasi masalah noise/riak air dari sensor ultrasonik.
-2. Menggunakan Random Forest (Background) untuk mempelajari kebiasaan jam pemakaian.
+Updates:
+- v5.1: Menambahkan penyimpanan metrik evaluasi (MAE, RMSE, R2) ke tabel model_evaluation.
 """
 
 import os
@@ -22,44 +20,37 @@ from dotenv import load_dotenv
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # ===================== 1. CONFIGURATION & ENV =====================
 
-# Setup Path (Menyesuaikan lokasi script agar bisa baca .env laravel)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(BASE_DIR, '../.env') # Asumsi folder script ada di dalam project laravel
+ENV_PATH = os.path.join(BASE_DIR, '../.env')
 STORAGE_PATH = os.path.join(BASE_DIR, '../storage/app/models')
 
-# Load .env
 if os.path.exists(ENV_PATH):
     load_dotenv(ENV_PATH)
-else:
-    print(f"⚠️ Warning: .env file not found at {ENV_PATH}")
 
-# Pastikan folder model ada
 os.makedirs(STORAGE_PATH, exist_ok=True)
 MODEL_PATH_RF = os.path.join(STORAGE_PATH, "water_pattern_rf.joblib")
 
-# Database Config (Ambil dari .env)
 DB_CONFIG = {
-    "host": os.getenv('DB_HOST', '127.0.0.1'),
-    "user": os.getenv('DB_USERNAME', 'root'),
-    "password": os.getenv('DB_PASSWORD', ''),
+    "host": os.getenv('DB_HOST', '72.61.117.97'),
+    "user": os.getenv('DB_USERNAME', 'sql_kel6_myiot_fun'),
+    "password": os.getenv('DB_PASSWORD', '05aaebf7bc4368'),
     "database": os.getenv('DB_DATABASE', 'water_monitoring'),
-    "port": int(os.getenv('DB_PORT', 3306)),
-    "charset": "utf8mb4", # Penting untuk koneksi stabil
+    "port": int(os.getenv('DB_PORT', 21)),
+    "charset": "utf8mb4",
 }
 
 # Settings
-CHECK_INTERVAL = 5      # Cek database setiap 5 detik
-WINDOW_SIZE = 20        # Ambil 20 data terakhir untuk hitung trend (Linear Reg)
-RETRAIN_THRESHOLD = 100 # Retrain model Random Forest setiap 100 data baru
+CHECK_INTERVAL = 5
+WINDOW_SIZE = 20
+RETRAIN_THRESHOLD = 100
 
 # ===================== 2. DATABASE HELPER FUNCTIONS =====================
 
 def get_db():
-    """Membuat koneksi ke database dengan error handling."""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         return conn
@@ -68,7 +59,6 @@ def get_db():
         return None
 
 def fetch_latest_sensor(conn):
-    """Mengambil 1 data sensor terakhir."""
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1")
     row = cursor.fetchone()
@@ -76,9 +66,7 @@ def fetch_latest_sensor(conn):
     return row
 
 def fetch_data_window(conn, limit=20):
-    """Mengambil X data terakhir untuk perhitungan Linear Regression Real-time."""
     cursor = conn.cursor(dictionary=True)
-    # Kita butuh created_at untuk sumbu X (waktu) dan water_level untuk sumbu Y
     query = "SELECT id, water_level, created_at FROM sensor_data ORDER BY id DESC LIMIT %s"
     cursor.execute(query, (limit,))
     rows = cursor.fetchall()
@@ -86,13 +74,10 @@ def fetch_data_window(conn, limit=20):
     return rows
 
 def fetch_training_data(conn):
-    """Mengambil data historis untuk training Random Forest (Pola Pemakaian)."""
-    # Kita aggregate per jam agar data lebih bersih untuk ML
     query = """
         SELECT
             HOUR(created_at) as hour_of_day,
             AVG(water_level) as avg_level
-            -- Disini bisa ditambahkan logika rata-rata depletion rate jika kolomnya sudah bersih
         FROM sensor_data
         GROUP BY hour_of_day, DATE(created_at)
         ORDER BY created_at DESC LIMIT 5000
@@ -105,7 +90,6 @@ def fetch_training_data(conn):
         return pd.DataFrame()
 
 def save_prediction(conn, sensor_row, hours, rate, method, status_text):
-    """Menyimpan hasil perhitungan ke tabel predictions."""
     try:
         cursor = conn.cursor()
         query = """
@@ -122,62 +106,80 @@ def save_prediction(conn, sensor_row, hours, rate, method, status_text):
     except Exception as e:
         print(f"❌ Gagal simpan prediksi: {e}")
 
+# --- [BARU] Fungsi Simpan Evaluasi Model ---
+def save_model_evaluation(conn, mae, rmse, r2, samples, time_sec):
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO model_evaluation
+            (mae, rmse, r2_score, training_samples, training_time, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+        """
+        cursor.execute(query, (mae, rmse, r2, samples, time_sec))
+        conn.commit()
+        cursor.close()
+        print(f"   📈 Evaluasi tersimpan: R2={r2:.4f}, RMSE={rmse:.4f}")
+    except Exception as e:
+        print(f"❌ Gagal simpan evaluasi: {e}")
+
 # ===================== 3. CORE LOGIC: LINEAR REGRESSION (REAL-TIME) =====================
 
 def calculate_trend_linear_reg(rows):
-    """
-    Inti dari sistem v5.0:
-    Menghitung kemiringan (slope) dari grafik air menggunakan Linear Regression.
-    Return: (rate_per_hour, r_squared_score)
-    """
-    if len(rows) < 5:
-        return 0, 0 # Data belum cukup
+    if len(rows) < 5: return 0, 0
 
     df = pd.DataFrame(rows)
     df['timestamp'] = pd.to_datetime(df['created_at'])
-
-    # Konversi waktu ke detik relative (agar bisa dihitung matematika)
-    # Titik 0 adalah data paling lama di window ini
     start_time = df['timestamp'].min()
     df['seconds'] = (df['timestamp'] - start_time).dt.total_seconds()
 
-    X = df[['seconds']].values # Input: Waktu
-    y = df['water_level'].values # Target: Level Air
+    X = df[['seconds']].values
+    y = df['water_level'].values
 
-    # Fit Linear Regression
     model = LinearRegression()
     model.fit(X, y)
 
     slope_per_sec = model.coef_[0]
-    r2 = model.score(X, y) # Seberapa lurus garisnya (1.0 = lurus sempurna)
+    r2 = model.score(X, y)
 
-    # Konversi ke per jam (dikali 3600 detik)
-    # Slope negatif = Air berkurang
-    # Slope positif = Air bertambah
     rate_per_hour = slope_per_sec * 3600
-
     return rate_per_hour, r2
 
 # ===================== 4. CORE LOGIC: RANDOM FOREST (BACKGROUND PATTERN) =====================
 
 def train_background_model(conn):
-    """Melatih model Random Forest untuk mempelajari pola jam."""
     print("   🔄 Background Training: Random Forest...")
+    start_time = time.time() # Mulai timer
+
     df = fetch_training_data(conn)
 
     if df.empty or len(df) < 50:
         print("   ⚠️ Data belum cukup untuk training pola.")
         return None
 
-    # Disini kita bisa buat model sederhana: Input Jam -> Output Level Rata2
-    # (Ini contoh simplifikasi, bisa dikembangkan lebih kompleks)
+    # Persiapan Data
     X = df[['hour_of_day']]
     y = df['avg_level']
 
-    model = RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42)
-    model.fit(X, y)
+    # Split Data untuk Validasi
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Save model
+    # Training
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+    model.fit(X_train, y_train)
+
+    # Evaluasi Model
+    y_pred = model.predict(X_test)
+
+    # Hitung Metrik
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred)) # Akar kuadrat dari MSE
+    r2 = r2_score(y_test, y_pred)
+    training_duration = time.time() - start_time
+
+    # Simpan ke Database (BARU)
+    save_model_evaluation(conn, mae, rmse, r2, len(df), training_duration)
+
+    # Save file model
     joblib.dump(model, MODEL_PATH_RF)
     print("   ✅ Model Random Forest Updated!")
     return model
@@ -185,22 +187,20 @@ def train_background_model(conn):
 # ===================== 5. UTILITIES =====================
 
 def format_time_text(hours):
-    """Mengubah float jam menjadi teks yang enak dibaca."""
     if hours >= 100 or hours < 0: return "> 2 Hari"
     if hours < 0.05: return "Selesai / Penuh"
 
     h = int(hours)
     m = int((hours - h) * 60)
 
-    if h > 0:
-        return f"{h} jam {m} menit"
+    if h > 0: return f"{h} jam {m} menit"
     return f"{m} menit"
 
 # ===================== 6. MAIN LOOP =====================
 
 def main():
     print("==============================================")
-    print("🤖 WATER MONITORING AI SERVICE v5.0 (HYBRID)")
+    print("🤖 WATER MONITORING AI SERVICE v5.1 (Evaluasi Aktif)")
     print(f"🎯 Database: {DB_CONFIG['database']} @ {DB_CONFIG['host']}")
     print("==============================================")
 
@@ -209,12 +209,9 @@ def main():
 
     while True:
         conn = get_db()
-        if not conn:
-            time.sleep(10)
-            continue
+        if not conn: time.sleep(10); continue
 
         try:
-            # 1. Cek Data Terbaru
             latest = fetch_latest_sensor(conn)
 
             if not latest:
@@ -222,67 +219,49 @@ def main():
                 conn.close(); time.sleep(CHECK_INTERVAL); continue
 
             if latest["id"] == last_processed_id:
-                # Tidak ada data baru, skip
                 conn.close(); time.sleep(CHECK_INTERVAL); continue
 
-            # 2. Ambil Window Data untuk Analisis Trend
+            # --- REALTIME LOGIC ---
             window_data = fetch_data_window(conn, limit=WINDOW_SIZE)
-
-            # 3. Hitung Trend Real-time (Linear Regression)
             rate_per_hour, r2_score = calculate_trend_linear_reg(window_data)
-
             current_level = float(latest["water_level"])
 
-            # Variabel Output
             pred_hours = 0
             final_rate = 0
             method = "IDLE"
             status_msg = "Stabil"
-
-            # 4. Logika Penentuan Status
-            # Threshold: Jika perubahan kurang dari 1% per jam, dianggap Noise/Stabil
             NOISE_THRESHOLD = 1.0
 
             if rate_per_hour < -NOISE_THRESHOLD:
-                # --- KASUS: AIR BERKURANG (DRAINING) ---
                 drain_rate = abs(rate_per_hour)
-
-                # Hindari pembagian nol
-                if drain_rate > 0.1:
-                    pred_hours = current_level / drain_rate
-
+                if drain_rate > 0.1: pred_hours = current_level / drain_rate
                 status_msg = f"Habis dlm {format_time_text(pred_hours)}"
-                method = f"LinReg (Trend: -{drain_rate:.1f}%/h)"
+                method = f"LinReg (-{drain_rate:.1f}%/h)"
                 final_rate = drain_rate
                 print(f"🔻 TURUN: Lvl {current_level}% | Rate: -{drain_rate:.1f}%/jam | {status_msg}")
 
             elif rate_per_hour > NOISE_THRESHOLD:
-                # --- KASUS: AIR BERTAMBAH (FILLING) ---
                 fill_rate = abs(rate_per_hour)
                 remaining_space = 100 - current_level
-
-                if fill_rate > 0.1:
-                    pred_hours = remaining_space / fill_rate
-
+                if fill_rate > 0.1: pred_hours = remaining_space / fill_rate
                 status_msg = f"Penuh dlm {format_time_text(pred_hours)}"
                 method = f"Pump Detect (+{fill_rate:.1f}%/h)"
                 final_rate = fill_rate
                 print(f"🔼 NAIK: Lvl {current_level}% | Rate: +{fill_rate:.1f}%/jam | {status_msg}")
 
             else:
-                # --- KASUS: STABIL ---
                 status_msg = "Stabil"
                 method = "Stabil"
                 print(f"💤 STABIL: Lvl {current_level}% (Noise: {rate_per_hour:.2f})")
 
-            # 5. Simpan Hasil ke DB
             save_prediction(conn, latest, pred_hours, final_rate, method, status_msg)
 
             last_processed_id = latest["id"]
             data_counter_since_retrain += 1
 
-            # 6. Cek Perlu Retrain Random Forest? (Opsional)
+            # --- RETRAINING LOGIC ---
             if data_counter_since_retrain >= RETRAIN_THRESHOLD:
+                # Sekarang fungsi ini sudah menyimpan metrik ke DB
                 train_background_model(conn)
                 data_counter_since_retrain = 0
 
@@ -291,7 +270,6 @@ def main():
             sys.exit()
         except Exception as e:
             print(f"\n❌ Error in Loop: {e}")
-            # Jangan exit, coba lanjut di loop berikutnya
 
         finally:
             if conn.is_connected():
