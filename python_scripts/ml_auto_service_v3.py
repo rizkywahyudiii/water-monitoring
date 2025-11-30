@@ -35,11 +35,11 @@ os.makedirs(STORAGE_PATH, exist_ok=True)
 MODEL_PATH_RF = os.path.join(STORAGE_PATH, "water_pattern_rf.joblib")
 
 DB_CONFIG = {
-    "host": os.getenv('DB_HOST', '72.61.117.97'),
-    "user": os.getenv('DB_USERNAME', 'sql_kel6_myiot_fun'),
-    "password": os.getenv('DB_PASSWORD', '05aaebf7bc4368'),
-    "database": os.getenv('DB_DATABASE', 'water_monitoring'),
-    "port": int(os.getenv('DB_PORT', 21)),
+    "host": os.getenv('DB_HOST', '127.0.0.1'),
+    "user": os.getenv('DB_USERNAME'),
+    "password": os.getenv('DB_PASSWORD'),
+    "database": os.getenv('DB_DATABASE'),
+    "port": int(os.getenv('DB_PORT', 3306)),
     "charset": "utf8mb4",
 }
 
