@@ -79,7 +79,7 @@
                        </svg>
                     </div>
                     <p class="mt-4 text-xs font-medium text-cyan-100 opacity-70">
-                        &copy; {{ date('Y') }} Kelompok 6 IoT - UNIMED.
+                        &copy; {{ date('Y') }} Kelompok 6 IoT - UNIMED. All rights reserved.
                     </p>
                 </div>
             </div>
