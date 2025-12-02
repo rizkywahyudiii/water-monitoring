@@ -11,7 +11,7 @@
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     @else
-        {{-- <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
         <script>
             tailwind.config = {
                 theme: {
@@ -22,7 +22,7 @@
                     }
                 }
             }
-        </script> --}}
+        </script>
     @endif
 </head>
 <body class="antialiased bg-slate-50 text-slate-800 selection:bg-cyan-500 selection:text-white">

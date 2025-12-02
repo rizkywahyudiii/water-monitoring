@@ -15,6 +15,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 1. Halaman Utama (Menggunakan Controller, bukan view static lagi)
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
+    Route::get('/history/export', [HistoryController::class, 'exportCsv'])->name('history.export');
 
     // 2. API Internal untuk AJAX (Data Realtime, Grafik, Metrik)
     // Ini nanti dipanggil oleh JavaScript di dashboard.blade.php

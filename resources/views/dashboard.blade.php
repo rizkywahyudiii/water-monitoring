@@ -119,50 +119,15 @@
                 </div>
             </div>
 
-            <!-- ROW 2: CHARTS -->
-            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                <!-- Main Chart -->
-                <div class="p-6 bg-white border shadow-sm rounded-2xl lg:col-span-2 border-slate-100">
+            <!-- ROW 2: MAIN CHART (CENTERED) -->
+            <div class="mt-6">
+                <div class="max-w-4xl p-6 mx-auto bg-white border shadow-sm rounded-2xl border-slate-100">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-lg font-bold text-slate-700">Grafik Level & Prediksi</h3>
                         <span class="px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-500">Realtime Update</span>
                     </div>
                     <div class="relative w-full h-72">
                         <canvas id="mainChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- AI Performance / ML Stats -->
-                <div class="flex flex-col justify-between p-6 bg-white border shadow-sm rounded-2xl border-slate-100">
-                    <div>
-                        <div class="flex items-center gap-2 mb-1">
-                            <h3 class="text-lg font-bold text-slate-700">Performa AI Model</h3>
-                            <span class="bg-violet-100 text-violet-600 text-[10px] px-2 py-0.5 rounded-full font-bold">LightGBM</span>
-                        </div>
-                        <p class="mb-6 text-sm text-slate-500">Metrik evaluasi pelatihan terakhir.</p>
-
-                        <div class="space-y-4">
-                            <!-- Metric 1 -->
-                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                                <span class="text-sm text-slate-500">RMSE (Error Rate)</span>
-                                <span class="font-mono font-bold text-rose-500" id="ml-rmse">0.000</span>
-                            </div>
-                            <!-- Metric 2 -->
-                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                                <span class="text-sm text-slate-500">R² Score (Akurasi)</span>
-                                <span class="font-mono font-bold text-emerald-500" id="ml-r2">0.000</span>
-                            </div>
-                            <!-- Metric 3 -->
-                            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-                                <span class="text-sm text-slate-500">Training Time</span>
-                                <span class="font-mono font-bold text-blue-500" id="ml-time">0s</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="p-4 mt-6 border bg-slate-50 rounded-xl border-slate-200">
-                        <p class="mb-1 text-xs text-slate-400">Terakhir dilatih:</p>
-                        <p class="text-sm font-semibold text-slate-700" id="ml-last-update">-</p>
                     </div>
                 </div>
             </div>
@@ -178,6 +143,9 @@
                 levelBorder: 'rgba(6, 182, 212, 1)',
                 rate: 'rgba(139, 92, 246, 1)',   // Violet
             };
+
+            // Simpan level sebelumnya untuk deteksi naik/turun di sisi frontend
+            let lastLevel = null;
 
             // ================= INIT CHART =================
             const ctx = document.getElementById('mainChart').getContext('2d');
@@ -248,9 +216,10 @@
                     const data = await response.json();
 
                     // --- UPDATE KARTU LEVEL AIR ---
-                    document.getElementById('val-level').innerText = data.water_level;
+                    const currentLevel = parseFloat(data.water_level ?? 0);
+                    document.getElementById('val-level').innerText = isFinite(currentLevel) ? currentLevel : 0;
                     const barLevel = document.getElementById('bar-level');
-                    barLevel.style.width = data.water_level + '%';
+                    barLevel.style.width = (isFinite(currentLevel) ? currentLevel : 0) + '%';
 
                     // Logic Indikator Flow (Mengisi / Berkurang / Stabil)
                     const flowInd = document.getElementById('flow-indicator');
@@ -264,11 +233,29 @@
                     shimmer.classList.remove('animate-shimmer');
                     shimmer.classList.add('opacity-0');
 
-                    if (data.flow_status === 'MENGISI') {
+                    // Tentukan arah flow berdasarkan perubahan level sebelumnya
+                    let direction = 'STABIL';
+                    const threshold = 0.3; // threshold perubahan % agar tidak terlalu sensitif
+
+                    if (lastLevel !== null) {
+                        const diff = currentLevel - lastLevel;
+                        if (diff > threshold) {
+                            direction = 'MENGISI';
+                        } else if (diff < -threshold) {
+                            direction = 'BERKURANG';
+                        }
+                    }
+                    lastLevel = currentLevel;
+
+                    // Ambil nilai flow_rate dari API jika ada, fallback ke diff
+                    const rawRate = parseFloat(data.flow_rate ?? 0);
+                    const safeRate = isFinite(rawRate) ? rawRate : 0;
+
+                    if (direction === 'MENGISI') {
                         // Gaya Hijau (Emerald)
                         flowInd.classList.add('bg-emerald-100', 'text-emerald-600');
                         flowIcon.innerHTML = "▲"; // Panah Atas
-                        flowText.innerText = "Mengisi (" + parseFloat(data.flow_rate).toFixed(1) + "%)";
+                        flowText.innerText = "Mengisi (" + safeRate.toFixed(1) + "%)";
                         iconBg.className = "p-3 bg-emerald-50 rounded-xl text-emerald-600 transition-colors duration-500";
                         barLevel.className = "bg-emerald-500 h-2.5 rounded-full transition-all duration-1000 relative overflow-hidden";
 
@@ -276,11 +263,11 @@
                         shimmer.classList.remove('opacity-0');
                         shimmer.classList.add('animate-shimmer', 'opacity-50');
 
-                    } else if (data.flow_status === 'BERKURANG') {
+                    } else if (direction === 'BERKURANG') {
                         // Gaya Merah/Orange (Rose)
                         flowInd.classList.add('bg-rose-100', 'text-rose-600');
                         flowIcon.innerHTML = "▼"; // Panah Bawah
-                        flowText.innerText = "Berkurang (" + parseFloat(data.flow_rate).toFixed(1) + "%)";
+                        flowText.innerText = "Berkurang (" + Math.abs(safeRate).toFixed(1) + "%)";
                         iconBg.className = "p-3 bg-rose-50 rounded-xl text-rose-600 transition-colors duration-500";
                         barLevel.className = "bg-rose-500 h-2.5 rounded-full transition-all duration-1000 relative";
 
@@ -349,29 +336,12 @@
                 }
             }
 
-            // 3. Update Metrik ML
-            async function fetchMetrics() {
-                try {
-                    const response = await fetch("{{ route('dashboard.metrics') }}");
-                    const data = await response.json();
-
-                    document.getElementById('ml-rmse').innerText = parseFloat(data.rmse).toFixed(4);
-                    document.getElementById('ml-r2').innerText = parseFloat(data.r2_score).toFixed(4);
-                    document.getElementById('ml-time').innerText = parseFloat(data.training_time).toFixed(2) + 's';
-                    document.getElementById('ml-last-update').innerText = data.last_trained;
-                } catch (error) {
-                    console.error('Error fetching metrics:', error);
-                }
-            }
-
             // ================= RUN LOOPS =================
             fetchStats();
             fetchChart();
-            fetchMetrics();
 
             setInterval(fetchStats, 2000);
             setInterval(fetchChart, 5000);
-            setInterval(fetchMetrics, 10000);
         });
     </script>
 
