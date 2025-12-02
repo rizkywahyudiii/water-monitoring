@@ -119,9 +119,9 @@
                 </div>
             </div>
 
-            <!-- ROW 2: MAIN CHART (CENTERED) -->
-            <div class="mt-6">
-                <div class="max-w-4xl p-6 mx-auto bg-white border shadow-sm rounded-2xl border-slate-100">
+            <!-- ROW 2: MAIN CHART + INSIGHT POLA WAKTU -->
+            <div class="grid gap-6 mt-6 lg:grid-cols-3">
+                <div class="p-6 bg-white border shadow-sm rounded-2xl border-slate-100 lg:col-span-2">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-lg font-bold text-slate-700">Grafik Level & Prediksi</h3>
                         <span class="px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-500">Realtime Update</span>
@@ -129,6 +129,34 @@
                     <div class="relative w-full h-72">
                         <canvas id="mainChart"></canvas>
                     </div>
+                </div>
+
+                <!-- Insight AI: Pola Waktu Penggunaan -->
+                <div class="p-6 bg-white border shadow-sm rounded-2xl border-slate-100">
+                    <h3 class="text-lg font-bold text-slate-700">Insight Pola Waktu</h3>
+                    <p class="mt-2 text-sm text-slate-500">
+                        {{ $usageInsights['summary'] ?? 'Belum ada cukup data untuk menganalisis pola waktu penggunaan air.' }}
+                    </p>
+
+                    @if(!empty($usageInsights['top_hours']))
+                        <div class="mt-4 space-y-2">
+                            @foreach($usageInsights['top_hours'] as $idx => $row)
+                                @php
+                                    $hour = (int) $row->hour;
+                                    $start = str_pad($hour, 2, '0', STR_PAD_LEFT) . ':00';
+                                    $end = str_pad(($hour + 1) % 24, 2, '0', STR_PAD_LEFT) . ':00';
+                                @endphp
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="font-medium text-slate-700">
+                                        {{ $idx + 1 }}. {{ $start }} - {{ $end }}
+                                    </span>
+                                    <span class="font-mono text-xs text-slate-400">
+                                        avg Δ ≈ {{ number_format($row->avg_usage, 1) }}%/jam
+                                    </span>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>

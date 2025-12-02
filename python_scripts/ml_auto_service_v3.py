@@ -89,22 +89,28 @@ def fetch_window_data(conn, limit=WINDOW_SIZE):
     return rows[::-1]
 
 def fetch_training_data(conn, limit=5000):
-    """Mengambil data lengkap untuk Training Random Forest."""
-    # Fitur: hour, minute, water_level, distance, turbidity, depletion_rate
+    """Mengambil data lengkap untuk Training Random Forest.
+
+    Best practice baru:
+    - Target: water_level langkah berikutnya (next step)
+    - Fitur: hour, minute, water_level, distance, turbidity (saat ini)
+    """
     query = """
         SELECT
-            HOUR(created_at) as hour,
-            MINUTE(created_at) as minute,
+            HOUR(created_at) AS hour,
+            MINUTE(created_at) AS minute,
             water_level,
             distance,
             turbidity,
-            depletion_rate
+            LEAD(water_level) OVER (ORDER BY created_at) AS next_water_level
         FROM sensor_data
-        WHERE depletion_rate IS NOT NULL
-        ORDER BY id DESC LIMIT %s
+        ORDER BY created_at ASC
+        LIMIT %s
     """
     try:
         df = pd.read_sql(query, conn, params=(limit,))
+        # Buang baris terakhir yang tidak punya next_water_level
+        df = df.dropna(subset=["next_water_level"])
         return df
     except Exception as e:
         print(f"⚠️ Error fetch training: {e}")
@@ -141,17 +147,17 @@ def save_prediction(conn, sensor_id, current_level, p_hours, p_time_str, method,
     except Exception as e:
         print(f"❌ Save Pred Error: {e}")
 
-def save_model_evaluation(conn, mae, rmse, r2, n_samples, t_time):
+def save_model_evaluation(conn, model_name, mae, rmse, r2, n_samples, t_time):
     """Menyimpan metrik evaluasi model ke tabel model_evaluation."""
     try:
         cursor = conn.cursor()
         query = """
             INSERT INTO model_evaluation (
-                mae, rmse, r2_score, training_samples, training_time,
+                model_name, mae, rmse, r2_score, training_samples, training_time,
                 created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
         """
-        cursor.execute(query, (mae, rmse, r2, n_samples, t_time))
+        cursor.execute(query, (model_name, mae, rmse, r2, n_samples, t_time))
         conn.commit()
         cursor.close()
         print(f"📈 Evaluation Saved: R²={r2:.4f}, RMSE={rmse:.4f}")
@@ -216,24 +222,26 @@ def format_time_prediction(hours):
     return text.strip()
 
 def retrain_random_forest(conn):
-    """Background Process: Retrain Random Forest & Save Evaluation."""
+    """Background Process: Retrain Random Forest & Save Evaluation (prediksi water_level selanjutnya)."""
     print("🔄 Starting Retraining Process...")
     start_time = time.time()
 
     df = fetch_training_data(conn)
 
-    if len(df) < 50:
-        print("⚠️ Not enough data to train RF.")
+    if len(df) < 200:
+        print("⚠️ Not enough data to train RF (need >= 200 rows).")
         return
 
-    # Features & Target
-    # Skenario: Kita ingin memprediksi 'depletion_rate' berdasarkan kondisi saat ini
-    # untuk mengetahui apakah kondisi sekarang normal atau anomali.
+    # Features & Target (prediksi water_level langkah berikutnya)
     feature_cols = ['hour', 'minute', 'water_level', 'distance', 'turbidity']
-    target_col = 'depletion_rate'
+    target_col = 'next_water_level'
 
-    # Drop rows with NaN
-    df = df.dropna(subset=feature_cols + [target_col])
+    # Drop rows with NaN dan clip nilai agar tidak ada outlier ekstrim
+    df = df.dropna(subset=feature_cols + [target_col]).copy()
+
+    # Clip level ke [0, 100] untuk keamanan
+    df['water_level'] = df['water_level'].clip(0, 100)
+    df['next_water_level'] = df['next_water_level'].clip(0, 100)
 
     X = df[feature_cols]
     y = df[target_col]
@@ -253,11 +261,51 @@ def retrain_random_forest(conn):
     train_time = time.time() - start_time
 
     # Save Evaluation
-    save_model_evaluation(conn, mae, rmse, r2, len(df), train_time)
+    save_model_evaluation(conn, "random_forest_next_level", mae, rmse, r2, len(df), train_time)
 
     # Save Model File
     joblib.dump(rf_model, MODEL_FILE)
     print("✅ Model Retrained & Saved.")
+
+
+def retrain_linear_regression(conn):
+    """Background Process: Retrain Linear Regression & Save Evaluation (prediksi water_level selanjutnya)."""
+    print("🔄 Starting Linear Regression Retraining...")
+    start_time = time.time()
+
+    df = fetch_training_data(conn)
+
+    if len(df) < 200:
+        print("⚠️ Not enough data to train Linear Regression (need >= 200 rows).")
+        return
+
+    feature_cols = ['hour', 'minute', 'water_level', 'distance', 'turbidity']
+    target_col = 'next_water_level'
+
+    df = df.dropna(subset=feature_cols + [target_col]).copy()
+    df['water_level'] = df['water_level'].clip(0, 100)
+    df['next_water_level'] = df['next_water_level'].clip(0, 100)
+
+    X = df[feature_cols]
+    y = df[target_col]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Train Linear Regression
+    lr_model = LinearRegression()
+    lr_model.fit(X_train, y_train)
+
+    # Evaluate
+    y_pred = lr_model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    r2 = r2_score(y_test, y_pred)
+
+    train_time = time.time() - start_time
+
+    # Save Evaluation
+    save_model_evaluation(conn, "linear_regression_next_level", mae, rmse, r2, len(df), train_time)
+    print("✅ Linear Regression Retrained (metrics saved).")
 
 # ================= MAIN LOOP =================
 
@@ -328,6 +376,7 @@ def main():
 
             if data_counter >= RETRAIN_THRESHOLD:
                 retrain_random_forest(conn)
+                retrain_linear_regression(conn)
                 data_counter = 0 # Reset counter
 
         except KeyboardInterrupt:

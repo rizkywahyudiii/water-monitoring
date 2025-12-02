@@ -29,5 +29,6 @@ class ModelEvaluation extends Model
         'r2_score'        => 'float',
         'training_time'   => 'float',
         'timestamp'       => 'datetime',
+        'model_name'      => 'string',
     ];
 }

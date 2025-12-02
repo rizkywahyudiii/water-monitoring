@@ -33,65 +33,35 @@ class SensorDataSeeder extends Seeder
         $currentLevel = 100; // Penuh
         $lastLevel = 100;
 
-        // Variabel untuk "State Machine" (Simulasi Kebiasaan)
-        // Mode: 'IDLE' (Diam), 'DRAINING' (Keran Buka), 'REFILLING' (Isi Ulang)
-        $mode = 'IDLE';
-        $stepsRemaining = 0; // Berapa lama mode ini bertahan
-        $currentRate = 0;    // Kecepatan air berkurang (% per 10 menit)
-
         while ($currentDate <= $now) {
+            // Pola penggunaan yang lebih "nyata" berbasis jam
+            $hour = (int) $currentDate->format('H');
 
-            // 1. LOGIKA "STATE MACHINE" (Simulasi Keran)
-            // Jika durasi aktivitas habis, tentukan aktivitas baru
-            if ($stepsRemaining <= 0) {
-                if ($currentLevel <= 10) {
-                    // Jika air habis/kritis -> Wajib ISI ULANG
-                    $mode = 'REFILLING';
-                    $stepsRemaining = rand(3, 6); // Isi ulang selama 30-60 menit
-                    $currentRate = rand(15, 30);  // Cepat naik
-                } else {
-                    // Jika air masih ada, acak kejadian berikutnya
-                    $dice = rand(1, 100);
+            // Default: sedikit penguapan
+            $delta = -0.05; // -0.05% per 10 menit
 
-                    if ($dice <= 40) {
-                        // 40% Kemungkinan: IDLE (Keran Tutup)
-                        $mode = 'IDLE';
-                        $stepsRemaining = rand(6, 24); // Diam selama 1-4 jam
-                        $currentRate = 0;
-                    } elseif ($dice <= 80) {
-                        // 40% Kemungkinan: KERAN DIBUKA (Normal Usage)
-                        $mode = 'DRAINING';
-                        $stepsRemaining = rand(6, 18); // Nyala 1-3 jam
-                        // Rate: 1% sampai 5% per 10 menit (konsisten)
-                        $currentRate = rand(10, 50) / 10;
-                    } else {
-                        // 20% Kemungkinan: BOCOR HALUS (Small Leak)
-                        $mode = 'DRAINING';
-                        $stepsRemaining = rand(12, 48); // Bocor lama (2-8 jam)
-                        // Rate: 0.1% sampai 0.5% per 10 menit (sangat pelan)
-                        $currentRate = rand(1, 5) / 10;
-                    }
-                }
+            if ($hour >= 5 && $hour <= 8) {
+                // Pagi hari: pemakaian sedang
+                $delta = -rand(5, 15) / 10; // -0.5% s/d -1.5% per 10 menit
+            } elseif ($hour >= 17 && $hour <= 21) {
+                // Sore/malam: pemakaian tinggi (mandi, masak, dsb)
+                $delta = -rand(15, 35) / 10; // -1.5% s/d -3.5% per 10 menit
+            } elseif ($hour >= 0 && $hour <= 4) {
+                // Tengah malam: hampir tidak dipakai
+                $delta = -rand(0, 3) / 10; // 0 s/d -0.3% per 10 menit
             }
 
-            // 2. EKSEKUSI PERUBAHAN LEVEL
-            if ($mode == 'REFILLING') {
-                $currentLevel += $currentRate;
-                if ($currentLevel > 100) $currentLevel = 100;
-            } elseif ($mode == 'DRAINING') {
-                // Tambahkan sedikit noise (0.01 - 0.05%) biar gak terlalu kaku kayak robot
-                $noise = rand(0, 5) / 100;
-                $realDrop = $currentRate + $noise;
-
-                $currentLevel -= $realDrop;
-                if ($currentLevel < 0) $currentLevel = 0;
-            } else {
-                // IDLE: Mungkin ada penguapan dikit banget
-                $currentLevel -= 0.01;
-                if ($currentLevel < 0) $currentLevel = 0;
+            // Isi ulang otomatis jika level terlalu rendah
+            if ($currentLevel <= 10) {
+                // Simulasi pompa isi ulang: naik cukup cepat
+                $delta = rand(30, 60) / 10; // +3% s/d +6% per 10 menit
             }
 
-            $stepsRemaining--; // Kurangi durasi aktivitas
+            // Tambahkan noise kecil agar tidak terlalu kaku
+            $noise = rand(-3, 3) / 100; // -0.03 s/d +0.03%
+            $currentLevel += $delta + $noise;
+            if ($currentLevel > 100) $currentLevel = 100;
+            if ($currentLevel < 0) $currentLevel = 0;
 
             // 3. HITUNG JARAK (Distance)
             // Rumus: MaxHeight - (Persentase * TinggiEfektif)
@@ -111,16 +81,12 @@ class SensorDataSeeder extends Seeder
                 $turbidityStatus = 'KERUH';
             }
 
-            // 5. HITUNG DEPLETION RATE (TARGET PREDIKSI ML)
-            // Rate = (% Lama - % Baru) / Selisih Jam
-            // Interval loop kita adalah 10 menit = 0.1666 jam
+            // 5. HITUNG DEPLETION RATE (TETAP DISIMPAN, TAPI SEKARANG TURUNANNYA JELAS)
+            // Rate = (% Lama - % Baru) / Selisih Jam (10 menit = 0.1666 jam)
             $hoursDiff = 10 / 60;
             $depletionRate = 0;
-
-            // Kita hanya hitung rate kalau air BERKURANG (Draining/Idle) dan TIDAK sedang isi ulang
-            if ($mode != 'REFILLING' && $lastLevel > $currentLevel) {
+            if ($lastLevel != $currentLevel) {
                 $diff = $lastLevel - $currentLevel;
-                // Rate = Persen per Jam
                 $depletionRate = $diff / $hoursDiff;
             }
 

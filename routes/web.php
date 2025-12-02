@@ -14,6 +14,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // 1. Halaman Utama (Menggunakan Controller, bukan view static lagi)
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/pola-penggunaan', [DashboardController::class, 'usagePatterns'])->name('usage.patterns');
     Route::get('/history', [HistoryController::class, 'index'])->name('history');
     Route::get('/history/export', [HistoryController::class, 'exportCsv'])->name('history.export');
 

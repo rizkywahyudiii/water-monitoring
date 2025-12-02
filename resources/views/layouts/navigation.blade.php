@@ -21,6 +21,10 @@
                     <x-nav-link :href="route('history')" :active="request()->routeIs('history')">
                         {{ __('History') }}
                     </x-nav-link>
+
+                    <x-nav-link :href="route('usage.patterns')" :active="request()->routeIs('usage.patterns')">
+                        {{ __('Pola Penggunaan') }}
+                    </x-nav-link>
                 </div>
             </div>
 
@@ -80,6 +84,10 @@
             <!-- Menu History untuk Mobile -->
             <x-responsive-nav-link :href="route('history')" :active="request()->routeIs('history')">
                 {{ __('History') }}
+            </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('usage.patterns')" :active="request()->routeIs('usage.patterns')">
+                {{ __('Pola Penggunaan') }}
             </x-responsive-nav-link>
         </div>
 

@@ -7,6 +7,7 @@ use App\Models\SensorData;
 use App\Models\Prediction;
 use App\Models\ModelEvaluation;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -16,7 +17,49 @@ class DashboardController extends Controller
     public function index()
     {
         $latest = SensorData::latest()->first();
-        return view('dashboard', compact('latest'));
+        $usageInsights = $this->buildUsageInsights();
+
+        return view('dashboard', [
+            'latest'        => $latest,
+            'usageInsights' => $usageInsights,
+        ]);
+    }
+
+    /**
+     * Halaman Pola Penggunaan (berbasis Random Forest depletion_rate).
+     *
+     * Konsep:
+     * - Random Forest di Python mempelajari pola 'depletion_rate' dari fitur:
+     *   jam, menit, level air, jarak, dan kekeruhan.
+     * - Di sini kita tampilkan ringkasan data historis depletion_rate + evaluasi model terakhir.
+     */
+    public function usagePatterns()
+    {
+        // Ambil beberapa sampel pola penggunaan terbaru (depletion_rate tidak null)
+        $samples = SensorData::select(
+                DB::raw('HOUR(created_at) as hour'),
+                DB::raw('MINUTE(created_at) as minute'),
+                'water_level',
+                'distance',
+                'turbidity',
+                'depletion_rate',
+                'created_at'
+            )
+            ->whereNotNull('depletion_rate')
+            ->latest()
+            ->take(100)
+            ->get();
+
+        // Ambil evaluasi model terbaru (bisa lebih dari 1 model)
+        $evaluation = ModelEvaluation::latest()->first();
+
+        $usageInsights = $this->buildUsageInsights();
+
+        return view('usage_patterns', [
+            'samples'       => $samples,
+            'evaluation'    => $evaluation,
+            'usageInsights' => $usageInsights,
+        ]);
     }
 
     /**
@@ -101,5 +144,56 @@ class DashboardController extends Controller
             'training_time' => $metric->training_time ?? 0,
             'last_trained' => $metric ? $metric->created_at->format('d M Y H:i') : '-',
         ]);
+    }
+
+    /**
+     * Utilitas: Bangun ringkasan pola waktu penggunaan air berdasarkan
+     * rata-rata depletion_rate positif per jam dalam 7 hari terakhir.
+     */
+    protected function buildUsageInsights(): array
+    {
+        $days = 7;
+
+        $rows = SensorData::selectRaw('HOUR(created_at) as hour, AVG(GREATEST(depletion_rate, 0)) as avg_usage')
+            ->whereNotNull('depletion_rate')
+            ->where('created_at', '>=', now()->subDays($days))
+            ->groupBy(DB::raw('HOUR(created_at)'))
+            ->orderByDesc('avg_usage')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [
+                'summary' => 'Belum ada cukup data untuk menganalisis pola waktu penggunaan air.',
+                'top_hours' => [],
+                'days' => $days,
+            ];
+        }
+
+        $top = $rows->take(3);
+
+        $formatHour = function ($h) {
+            $start = str_pad($h, 2, '0', STR_PAD_LEFT) . ':00';
+            $end = str_pad(($h + 1) % 24, 2, '0', STR_PAD_LEFT) . ':00';
+            return "{$start}-{$end}";
+        };
+
+        $phrases = $top->map(function ($row) use ($formatHour) {
+            return $formatHour((int) $row->hour);
+        })->all();
+
+        $summary = 'Belum ada cukup data.';
+        if (count($phrases) === 1) {
+            $summary = "Berdasarkan {$days} hari terakhir, air paling banyak digunakan pada rentang waktu {$phrases[0]}.";
+        } elseif (count($phrases) === 2) {
+            $summary = "Berdasarkan {$days} hari terakhir, air paling banyak digunakan pada rentang waktu {$phrases[0]} dan {$phrases[1]}.";
+        } else {
+            $summary = "Berdasarkan {$days} hari terakhir, air paling banyak digunakan pada rentang waktu {$phrases[0]}, {$phrases[1]}, dan {$phrases[2]}.";
+        }
+
+        return [
+            'summary' => $summary,
+            'top_hours' => $top,
+            'days' => $days,
+        ];
     }
 }
