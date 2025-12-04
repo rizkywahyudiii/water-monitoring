@@ -155,26 +155,66 @@ class DashboardController extends Controller
 
     /**
      * 5. API Internal untuk grafik prediksi waktu habis (Linear Regression Trend)
+     * Format: Sumbu X = jam ke depan, Sumbu Y = level air (%), seperti prediksi baterai smartphone
      */
     public function getTimePredictionChart()
     {
-        // Ambil 30 prediksi terakhir dengan predicted_hours > 0 (hanya yang valid)
-        $predictions = Prediction::where('predicted_hours', '>', 0)
-            ->with('sensorData')
+        // Ambil data terbaru dan prediksi terakhir
+        $latest = SensorData::latest()->first();
+        $latestPrediction = Prediction::where('predicted_hours', '>', 0)
             ->latest()
-            ->take(30)
-            ->get()
-            ->sortBy('created_at')
-            ->values();
+            ->first();
 
-        $labels = $predictions->pluck('created_at')->map(fn($date) => $date->format('d M H:i'));
-        $predictedHours = $predictions->pluck('predicted_hours');
-        $currentLevels = $predictions->pluck('current_level');
+        if (!$latest || !$latestPrediction) {
+            return response()->json([
+                'labels' => [],
+                'predicted_levels' => [],
+                'empty_time' => null,
+                'empty_time_formatted' => null,
+            ]);
+        }
+
+        $currentLevel = $latest->water_level;
+        $depletionRate = abs($latestPrediction->predicted_rate ?? 0); // Rate penurunan per jam (%/jam)
+
+        // Jika rate terlalu kecil atau tidak ada, return kosong
+        if ($depletionRate < 0.1) {
+            return response()->json([
+                'labels' => [],
+                'predicted_levels' => [],
+                'empty_time' => null,
+                'empty_time_formatted' => 'Stabil (tidak ada penurunan signifikan)',
+            ]);
+        }
+
+        // Hitung kapan air habis (level = 0)
+        $hoursUntilEmpty = $currentLevel / $depletionRate;
+        $emptyTime = now()->addHours($hoursUntilEmpty);
+
+        // Generate data untuk grafik: prediksi level setiap jam sampai habis
+        $labels = [];
+        $predictedLevels = [];
+        $maxHours = min(48, ceil($hoursUntilEmpty) + 2); // Maksimal 48 jam atau sampai habis + 2 jam buffer
+
+        for ($hour = 0; $hour <= $maxHours; $hour++) {
+            $predictedLevel = max(0, $currentLevel - ($depletionRate * $hour));
+
+            $labels[] = $hour . 'h';
+            $predictedLevels[] = round($predictedLevel, 2);
+
+            // Stop jika sudah mencapai 0
+            if ($predictedLevel <= 0) {
+                break;
+            }
+        }
 
         return response()->json([
             'labels' => $labels,
-            'predicted_hours' => $predictedHours,
-            'current_levels' => $currentLevels,
+            'predicted_levels' => $predictedLevels,
+            'empty_time' => $emptyTime->toIso8601String(),
+            'empty_time_formatted' => $emptyTime->format('d M Y, H:i'),
+            'current_level' => $currentLevel,
+            'depletion_rate' => $depletionRate,
         ]);
     }
 

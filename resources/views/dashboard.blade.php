@@ -174,9 +174,12 @@
                     <div class="relative w-full h-64">
                         <canvas id="predictionChart"></canvas>
                     </div>
-                    <p class="mt-3 text-xs text-slate-400 text-center">
-                        Menampilkan prediksi waktu habis (jam) dari 30 prediksi terakhir
-                    </p>
+                    <div id="empty-time-display" class="mt-3 p-3 text-center bg-rose-50 border border-rose-200 rounded-lg">
+                        <p class="text-sm font-semibold text-rose-700">
+                            <span class="inline-block mr-2">🔋</span>
+                            <span id="empty-time-text">Menghitung prediksi...</span>
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Grafik 2: Pola Penggunaan Harian/Jam (Random Forest Pattern) -->
@@ -409,15 +412,18 @@
                     labels: [],
                     datasets: [
                         {
-                            label: 'Prediksi Waktu Habis (jam)',
+                            label: 'Level Air (%)',
                             data: [],
                             borderColor: 'rgba(59, 130, 246, 1)',
                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
                             borderWidth: 2,
                             fill: true,
-                            tension: 0.4,
-                            pointRadius: 3,
-                            pointHoverRadius: 5
+                            tension: 0.3,
+                            pointRadius: 2,
+                            pointHoverRadius: 4,
+                            pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2
                         }
                     ]
                 },
@@ -429,7 +435,7 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return 'Prediksi: ' + context.parsed.y.toFixed(1) + ' jam';
+                                    return 'Level: ' + context.parsed.y.toFixed(1) + '%';
                                 }
                             }
                         }
@@ -437,13 +443,26 @@
                     scales: {
                         y: {
                             beginAtZero: true,
-                            title: { display: true, text: 'Waktu (jam)' }
+                            max: 100,
+                            title: { display: true, text: 'Level Air (%)' },
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
                         },
                         x: {
-                            grid: { display: false },
+                            title: { display: true, text: 'Jam ke Depan' },
+                            grid: { display: true },
                             ticks: {
-                                maxRotation: 45,
-                                minRotation: 45
+                                maxTicksLimit: 12,
+                                callback: function(value, index) {
+                                    // Tampilkan setiap 2-4 jam untuk label yang lebih rapi
+                                    if (index % 4 === 0 || index === this.chart.data.labels.length - 1) {
+                                        return value;
+                                    }
+                                    return '';
+                                }
                             }
                         }
                     }
@@ -498,9 +517,33 @@
                     const response = await fetch("{{ route('dashboard.prediction.chart') }}");
                     const data = await response.json();
 
-                    predictionChart.data.labels = data.labels;
-                    predictionChart.data.datasets[0].data = data.predicted_hours;
-                    predictionChart.update();
+                    if (data.labels && data.labels.length > 0) {
+                        predictionChart.data.labels = data.labels;
+                        predictionChart.data.datasets[0].data = data.predicted_levels;
+                        predictionChart.update();
+
+                        // Update display waktu habis
+                        const emptyTimeText = document.getElementById('empty-time-text');
+                        if (data.empty_time_formatted) {
+                            if (data.empty_time_formatted.includes('Stabil')) {
+                                emptyTimeText.innerText = data.empty_time_formatted;
+                                emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-slate-50 border border-slate-200 rounded-lg';
+                                emptyTimeText.className = 'text-sm font-semibold text-slate-600';
+                            } else {
+                                emptyTimeText.innerHTML = 'Akan habis pada: <span class="text-rose-600">' + data.empty_time_formatted + '</span>';
+                                emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-rose-50 border border-rose-200 rounded-lg';
+                                emptyTimeText.className = 'text-sm font-semibold text-rose-700';
+                            }
+                        } else {
+                            emptyTimeText.innerText = 'Menghitung prediksi...';
+                        }
+                    } else {
+                        // Tidak ada data
+                        const emptyTimeText = document.getElementById('empty-time-text');
+                        emptyTimeText.innerText = 'Belum ada data prediksi yang cukup';
+                        emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-slate-50 border border-slate-200 rounded-lg';
+                        emptyTimeText.className = 'text-sm font-semibold text-slate-600';
+                    }
                 } catch (error) {
                     console.error('Error fetching prediction chart:', error);
                 }
