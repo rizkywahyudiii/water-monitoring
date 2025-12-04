@@ -26,12 +26,12 @@ class DashboardController extends Controller
     }
 
     /**
-     * Halaman Pola Penggunaan (berbasis Random Forest depletion_rate).
+     * Halaman Pola Penggunaan (berbasis Random Forest & Linear Regression).
      *
      * Konsep:
-     * - Random Forest di Python mempelajari pola 'depletion_rate' dari fitur:
+     * - Random Forest dan Linear Regression di Python mempelajari pola 'next_water_level' dari fitur:
      *   jam, menit, level air, jarak, dan kekeruhan.
-     * - Di sini kita tampilkan ringkasan data historis depletion_rate + evaluasi model terakhir.
+     * - Di sini kita tampilkan ringkasan data historis + evaluasi KEDUA model untuk perbandingan.
      */
     public function usagePatterns()
     {
@@ -50,15 +50,22 @@ class DashboardController extends Controller
             ->take(100)
             ->get();
 
-        // Ambil evaluasi model terbaru (bisa lebih dari 1 model)
-        $evaluation = ModelEvaluation::latest()->first();
+        // Ambil evaluasi KEDUA model secara terpisah (untuk perbandingan)
+        $rfEvaluation = ModelEvaluation::where('model_name', 'random_forest_next_level')
+            ->latest()
+            ->first();
+
+        $lrEvaluation = ModelEvaluation::where('model_name', 'linear_regression_next_level')
+            ->latest()
+            ->first();
 
         $usageInsights = $this->buildUsageInsights();
 
         return view('usage_patterns', [
             'samples'       => $samples,
-            'evaluation'    => $evaluation,
-            'usageInsights' => $usageInsights,
+            'rfEvaluation'   => $rfEvaluation,
+            'lrEvaluation'   => $lrEvaluation,
+            'usageInsights'  => $usageInsights,
         ]);
     }
 

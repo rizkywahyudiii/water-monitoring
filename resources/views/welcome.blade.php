@@ -161,7 +161,7 @@
 
                     <div class="block pt-6 mt-8 text-center border-t border-slate-100 lg:hidden">
                          <p class="text-xs font-medium text-slate-400">
-                            &copy; {{ date('Y') }} Politeknik Negeri Media Kreatif.
+                            &copy; {{ date('Y') }} Kelompok 6 IoT - UNIMED. All rights reserved.
                         </p>
                     </div>
                 </div>
