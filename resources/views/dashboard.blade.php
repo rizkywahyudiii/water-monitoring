@@ -412,27 +412,33 @@
                     labels: [],
                     datasets: [
                         {
-                            label: 'Histori Level',
+                            label: 'Histori Level (6 jam terakhir)',
                             data: [],
                             borderColor: 'rgba(59, 130, 246, 1)', // Biru Solid
-                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                            borderWidth: 2,
+                            backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                            borderWidth: 2.5,
                             fill: true,
                             tension: 0.4,
-                            pointRadius: 0, // Sembunyikan titik histori agar rapi
-                            pointHoverRadius: 4
+                            pointRadius: 2,
+                            pointHoverRadius: 5,
+                            pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                            spanGaps: false // Jangan sambungkan jika ada null
                         },
                         {
                             label: 'Prediksi Habis',
                             data: [],
                             borderColor: 'rgba(244, 63, 94, 1)', // Merah/Rose
                             backgroundColor: 'rgba(244, 63, 94, 0.1)',
-                            borderWidth: 2,
-                            borderDash: [5, 5], // <--- INI KUNCINYA (Garis Putus-putus)
+                            borderWidth: 2.5,
+                            borderDash: [8, 4], // Garis putus-putus lebih jelas
                             fill: false,
-                            tension: 0.4,
-                            pointRadius: 0,
-                            pointHoverRadius: 4
+                            tension: 0.3,
+                            pointRadius: 3,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: 'rgba(244, 63, 94, 1)',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            spanGaps: false // Jangan sambungkan jika ada null
                         }
                     ]
                 },

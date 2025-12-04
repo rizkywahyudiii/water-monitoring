@@ -155,16 +155,22 @@ class DashboardController extends Controller
 
     /**
      * 5. API Internal untuk grafik prediksi waktu habis (Linear Regression Trend)
-     * Format: Sumbu X = jam ke depan, Sumbu Y = level air (%)
+     * Format: Sumbu X = waktu (history + prediksi), Sumbu Y = level air (%)
      */
     public function getTimePredictionChart()
     {
-        // 1. Ambil Data Histori (Misal: 12 Jam terakhir)
-        // Kita ambil per jam agar grafik tidak terlalu padat
-        $historyData = SensorData::selectRaw('DATE_FORMAT(created_at, "%H:00") as time, AVG(water_level) as level')
-            ->where('created_at', '>=', now()->subHours(12))
-            ->groupBy('time')
-            ->orderBy('created_at') // Urutkan berdasarkan waktu
+        // 1. Ambil Data Histori (6 jam terakhir, diambil per jam untuk tidak terlalu padat)
+        $sixHoursAgo = now()->subHours(6);
+        
+        $historyData = SensorData::selectRaw('
+                DATE_FORMAT(created_at, "%d/%m %H:00") as time_label,
+                HOUR(created_at) as hour,
+                DATE(created_at) as date,
+                AVG(water_level) as level
+            ')
+            ->where('created_at', '>=', $sixHoursAgo)
+            ->groupBy('date', 'hour')
+            ->orderBy('created_at')
             ->get();
 
         // 2. Siapkan Data Prediksi
@@ -172,7 +178,7 @@ class DashboardController extends Controller
         $latestPrediction = Prediction::where('predicted_hours', '>', 0)->latest()->first();
 
         // Default jika data kosong
-        if (!$latest || $historyData->isEmpty()) {
+        if (!$latest) {
             return response()->json([
                 'labels' => [],
                 'history' => [],
@@ -190,29 +196,22 @@ class DashboardController extends Controller
         $historyPoints = [];
         $predictionPoints = [];
 
-        // A. MASUKKAN DATA HISTORI KE ARRAY
+        // A. MASUKKAN DATA HISTORI KE ARRAY (Garis Biru Solid)
         foreach ($historyData as $data) {
-            $labels[] = $data->time;
+            $labels[] = $data->time_label;
             $historyPoints[] = round($data->level, 1);
             $predictionPoints[] = null; // Bagian histori, prediksi null
         }
 
         // B. TITIK SAMBUNG (PENTING: Agar garis nyambung, titik "Sekarang" ada di kedua dataset)
-        $nowLabel = now()->format('H:i');
-
-        // Hapus titik terakhir histori agar kita bisa replace dengan data real-time 'Sekarang'
-        // supaya grafiknya akurat saat ini
-        if (!empty($labels)) {
-            array_pop($labels);
-            array_pop($historyPoints);
-            array_pop($predictionPoints);
-        }
-
+        $nowLabel = now()->format('d/m H:i');
+        
+        // Tambahkan titik "Sekarang" sebagai titik akhir history dan awal prediksi
         $labels[] = "Sekarang";
-        $historyPoints[] = $currentLevel;
-        $predictionPoints[] = $currentLevel; // Titik awal prediksi dimulai dari level sekarang
+        $historyPoints[] = $currentLevel; // Titik akhir history (biru solid)
+        $predictionPoints[] = $currentLevel; // Titik awal prediksi (merah putus-putus)
 
-        // C. GENERATE PREDIKSI MASA DEPAN
+        // C. GENERATE PREDIKSI MASA DEPAN (Garis Merah Putus-putus)
         $emptyTimeFormatted = 'Stabil';
 
         if ($depletionRate > 0.1) {
@@ -223,10 +222,11 @@ class DashboardController extends Controller
             $maxHours = min(24, ceil($hoursUntilEmpty) + 2); // Batasi max 24 jam ke depan visualnya
 
             for ($h = 1; $h <= $maxHours; $h++) {
-                $futureTime = now()->addHours($h)->format('H:00');
+                $futureTime = now()->addHours($h);
+                $timeLabel = $futureTime->format('d/m H:00');
                 $predictedLevel = max(0, $currentLevel - ($depletionRate * $h));
 
-                $labels[] = $futureTime;
+                $labels[] = $timeLabel;
                 $historyPoints[] = null; // Bagian masa depan, histori null
                 $predictionPoints[] = round($predictedLevel, 1);
 
@@ -236,8 +236,8 @@ class DashboardController extends Controller
 
         return response()->json([
             'labels' => $labels,
-            'history' => $historyPoints,         // Dataset 1 (Solid)
-            'prediction' => $predictionPoints,   // Dataset 2 (Dashed)
+            'history' => $historyPoints,         // Dataset 0: History (Biru Solid)
+            'prediction' => $predictionPoints,   // Dataset 1: Prediction (Merah Putus-putus)
             'empty_time_formatted' => $emptyTimeFormatted
         ]);
     }
