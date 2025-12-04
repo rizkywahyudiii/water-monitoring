@@ -159,6 +159,43 @@
                     @endif
                 </div>
             </div>
+
+            <!-- ROW 3: GRAFIK PREDIKSI ML (Linear Regression & Random Forest) -->
+            <div class="grid gap-6 mt-6 lg:grid-cols-2">
+                <!-- Grafik 1: Prediksi Waktu Habis (Linear Regression Trend) -->
+                <div class="p-6 bg-white border shadow-sm rounded-2xl border-slate-100">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-700">Prediksi Waktu Habis</h3>
+                            <p class="text-xs text-slate-500 mt-1">Linear Regression Trend</p>
+                        </div>
+                        <span class="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-600">LR Model</span>
+                    </div>
+                    <div class="relative w-full h-64">
+                        <canvas id="predictionChart"></canvas>
+                    </div>
+                    <p class="mt-3 text-xs text-slate-400 text-center">
+                        Menampilkan prediksi waktu habis (jam) dari 30 prediksi terakhir
+                    </p>
+                </div>
+
+                <!-- Grafik 2: Pola Penggunaan Harian/Jam (Random Forest Pattern) -->
+                <div class="p-6 bg-white border shadow-sm rounded-2xl border-slate-100">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-700">Pola Penggunaan Harian</h3>
+                            <p class="text-xs text-slate-500 mt-1">Random Forest Pattern Analysis</p>
+                        </div>
+                        <span class="px-2 py-1 text-xs font-medium rounded bg-violet-100 text-violet-600">RF Model</span>
+                    </div>
+                    <div class="relative w-full h-64">
+                        <canvas id="usagePatternChart"></canvas>
+                    </div>
+                    <p class="mt-3 text-xs text-slate-400 text-center">
+                        Rata-rata penurunan level per jam (7 hari terakhir)
+                    </p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -364,12 +401,135 @@
                 }
             }
 
+            // ================= INIT PREDICTION CHART (Linear Regression) =================
+            const predCtx = document.getElementById('predictionChart').getContext('2d');
+            const predictionChart = new Chart(predCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Prediksi Waktu Habis (jam)',
+                            data: [],
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 3,
+                            pointHoverRadius: 5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Prediksi: ' + context.parsed.y.toFixed(1) + ' jam';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Waktu (jam)' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+
+            // ================= INIT USAGE PATTERN CHART (Random Forest) =================
+            const patternCtx = document.getElementById('usagePatternChart').getContext('2d');
+            const usagePatternChart = new Chart(patternCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Rata-rata Penurunan (%/jam)',
+                            data: [],
+                            backgroundColor: 'rgba(139, 92, 246, 0.6)',
+                            borderColor: 'rgba(139, 92, 246, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Rata-rata: ' + context.parsed.y.toFixed(2) + '%/jam';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Penurunan (%/jam)' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Jam (24 jam)' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // ================= FETCH PREDICTION CHART DATA =================
+            async function fetchPredictionChart() {
+                try {
+                    const response = await fetch("{{ route('dashboard.prediction.chart') }}");
+                    const data = await response.json();
+
+                    predictionChart.data.labels = data.labels;
+                    predictionChart.data.datasets[0].data = data.predicted_hours;
+                    predictionChart.update();
+                } catch (error) {
+                    console.error('Error fetching prediction chart:', error);
+                }
+            }
+
+            // ================= FETCH USAGE PATTERN CHART DATA =================
+            async function fetchUsagePatternChart() {
+                try {
+                    const response = await fetch("{{ route('dashboard.usage.pattern.chart') }}");
+                    const data = await response.json();
+
+                    usagePatternChart.data.labels = data.labels;
+                    usagePatternChart.data.datasets[0].data = data.avg_usage;
+                    usagePatternChart.update();
+                } catch (error) {
+                    console.error('Error fetching usage pattern chart:', error);
+                }
+            }
+
             // ================= RUN LOOPS =================
             fetchStats();
             fetchChart();
+            fetchPredictionChart();
+            fetchUsagePatternChart();
 
             setInterval(fetchStats, 2000);
             setInterval(fetchChart, 5000);
+            setInterval(fetchPredictionChart, 10000); // Update setiap 10 detik
+            setInterval(fetchUsagePatternChart, 30000); // Update setiap 30 detik (pola harian tidak perlu terlalu sering)
         });
     </script>
 

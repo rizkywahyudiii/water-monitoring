@@ -154,6 +154,67 @@ class DashboardController extends Controller
     }
 
     /**
+     * 5. API Internal untuk grafik prediksi waktu habis (Linear Regression Trend)
+     */
+    public function getTimePredictionChart()
+    {
+        // Ambil 30 prediksi terakhir dengan predicted_hours > 0 (hanya yang valid)
+        $predictions = Prediction::where('predicted_hours', '>', 0)
+            ->with('sensorData')
+            ->latest()
+            ->take(30)
+            ->get()
+            ->sortBy('created_at')
+            ->values();
+
+        $labels = $predictions->pluck('created_at')->map(fn($date) => $date->format('d M H:i'));
+        $predictedHours = $predictions->pluck('predicted_hours');
+        $currentLevels = $predictions->pluck('current_level');
+
+        return response()->json([
+            'labels' => $labels,
+            'predicted_hours' => $predictedHours,
+            'current_levels' => $currentLevels,
+        ]);
+    }
+
+    /**
+     * 6. API Internal untuk grafik pola penggunaan harian/jam (Random Forest Pattern)
+     */
+    public function getUsagePatternChart()
+    {
+        // Ambil data 7 hari terakhir, grup per jam
+        $sevenDaysAgo = Carbon::now()->subDays(7);
+
+        $hourlyData = SensorData::select(
+                DB::raw('HOUR(created_at) as hour'),
+                DB::raw('AVG(GREATEST(depletion_rate, 0)) as avg_depletion'),
+                DB::raw('COUNT(*) as count')
+            )
+            ->where('created_at', '>=', $sevenDaysAgo)
+            ->whereNotNull('depletion_rate')
+            ->where('depletion_rate', '>', 0) // Hanya yang benar-benar berkurang
+            ->groupBy(DB::raw('HOUR(created_at)'))
+            ->orderBy('hour')
+            ->get();
+
+        $hours = [];
+        $avgUsage = [];
+
+        // Generate semua jam 0-23, isi dengan 0 jika tidak ada data
+        for ($h = 0; $h < 24; $h++) {
+            $hours[] = str_pad($h, 2, '0', STR_PAD_LEFT) . ':00';
+            $data = $hourlyData->firstWhere('hour', $h);
+            $avgUsage[] = $data ? round($data->avg_depletion, 2) : 0;
+        }
+
+        return response()->json([
+            'labels' => $hours,
+            'avg_usage' => $avgUsage,
+        ]);
+    }
+
+    /**
      * Utilitas: Bangun ringkasan pola waktu penggunaan air berdasarkan
      * rata-rata depletion_rate positif per jam dalam 7 hari terakhir.
      */

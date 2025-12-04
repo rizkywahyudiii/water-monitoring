@@ -23,6 +23,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/dashboard/stats', [DashboardController::class, 'getStats'])->name('dashboard.stats');
     Route::get('/dashboard/chart', [DashboardController::class, 'getChartData'])->name('dashboard.chart');
     Route::get('/dashboard/metrics', [DashboardController::class, 'getMetrics'])->name('dashboard.metrics');
+    Route::get('/dashboard/prediction-chart', [DashboardController::class, 'getTimePredictionChart'])->name('dashboard.prediction.chart');
+    Route::get('/dashboard/usage-pattern-chart', [DashboardController::class, 'getUsagePatternChart'])->name('dashboard.usage.pattern.chart');
 
     // 3. Profile Routes (Bawaan Breeze)
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
