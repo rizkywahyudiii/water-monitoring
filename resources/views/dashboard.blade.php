@@ -167,14 +167,14 @@
                     <div class="flex items-center justify-between mb-4">
                         <div>
                             <h3 class="text-lg font-bold text-slate-700">Prediksi Waktu Habis</h3>
-                            <p class="text-xs text-slate-500 mt-1">Linear Regression Trend</p>
+                            <p class="mt-1 text-xs text-slate-500">Linear Regression Trend</p>
                         </div>
-                        <span class="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-600">LR Model</span>
+                        <span class="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-100 rounded">LR Model</span>
                     </div>
                     <div class="relative w-full h-64">
                         <canvas id="predictionChart"></canvas>
                     </div>
-                    <div id="empty-time-display" class="mt-3 p-3 text-center bg-rose-50 border border-rose-200 rounded-lg">
+                    <div id="empty-time-display" class="p-3 mt-3 text-center border rounded-lg bg-rose-50 border-rose-200">
                         <p class="text-sm font-semibold text-rose-700">
                             <span class="inline-block mr-2">🔋</span>
                             <span id="empty-time-text">Menghitung prediksi...</span>
@@ -187,14 +187,14 @@
                     <div class="flex items-center justify-between mb-4">
                         <div>
                             <h3 class="text-lg font-bold text-slate-700">Pola Penggunaan Harian</h3>
-                            <p class="text-xs text-slate-500 mt-1">Random Forest Pattern Analysis</p>
+                            <p class="mt-1 text-xs text-slate-500">Random Forest Pattern Analysis</p>
                         </div>
                         <span class="px-2 py-1 text-xs font-medium rounded bg-violet-100 text-violet-600">RF Model</span>
                     </div>
                     <div class="relative w-full h-64">
                         <canvas id="usagePatternChart"></canvas>
                     </div>
-                    <p class="mt-3 text-xs text-slate-400 text-center">
+                    <p class="mt-3 text-xs text-center text-slate-400">
                         Rata-rata penurunan level per jam (7 hari terakhir)
                     </p>
                 </div>
@@ -404,7 +404,7 @@
                 }
             }
 
-            // ================= INIT PREDICTION CHART (Linear Regression) =================
+            // ================= INIT PREDICTION CHART (BATTERY STYLE) =================
             const predCtx = document.getElementById('predictionChart').getContext('2d');
             const predictionChart = new Chart(predCtx, {
                 type: 'line',
@@ -412,30 +412,47 @@
                     labels: [],
                     datasets: [
                         {
-                            label: 'Level Air (%)',
+                            label: 'Histori Level',
                             data: [],
-                            borderColor: 'rgba(59, 130, 246, 1)',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderColor: 'rgba(59, 130, 246, 1)', // Biru Solid
+                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
                             borderWidth: 2,
                             fill: true,
-                            tension: 0.3,
-                            pointRadius: 2,
-                            pointHoverRadius: 4,
-                            pointBackgroundColor: 'rgba(59, 130, 246, 1)',
-                            pointBorderColor: '#fff',
-                            pointBorderWidth: 2
+                            tension: 0.4,
+                            pointRadius: 0, // Sembunyikan titik histori agar rapi
+                            pointHoverRadius: 4
+                        },
+                        {
+                            label: 'Prediksi Habis',
+                            data: [],
+                            borderColor: 'rgba(244, 63, 94, 1)', // Merah/Rose
+                            backgroundColor: 'rgba(244, 63, 94, 0.1)',
+                            borderWidth: 2,
+                            borderDash: [5, 5], // <--- INI KUNCINYA (Garis Putus-putus)
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            pointHoverRadius: 4
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     plugins: {
-                        legend: { display: false },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { usePointStyle: true, boxWidth: 6 }
+                        },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return 'Level: ' + context.parsed.y.toFixed(1) + '%';
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
                                 }
                             }
                         }
@@ -444,25 +461,14 @@
                         y: {
                             beginAtZero: true,
                             max: 100,
-                            title: { display: true, text: 'Level Air (%)' },
-                            ticks: {
-                                callback: function(value) {
-                                    return value + '%';
-                                }
-                            }
+                            title: { display: false },
+                            ticks: { callback: value => value + '%' }
                         },
                         x: {
-                            title: { display: true, text: 'Jam ke Depan' },
-                            grid: { display: true },
+                            grid: { display: false },
                             ticks: {
-                                maxTicksLimit: 12,
-                                callback: function(value, index) {
-                                    // Tampilkan setiap 2-4 jam untuk label yang lebih rapi
-                                    if (index % 4 === 0 || index === this.chart.data.labels.length - 1) {
-                                        return value;
-                                    }
-                                    return '';
-                                }
+                                maxTicksLimit: 8, // Agar label jam tidak menumpuk
+                                autoSkip: true
                             }
                         }
                     }
@@ -517,32 +523,29 @@
                     const response = await fetch("{{ route('dashboard.prediction.chart') }}");
                     const data = await response.json();
 
-                    if (data.labels && data.labels.length > 0) {
-                        predictionChart.data.labels = data.labels;
-                        predictionChart.data.datasets[0].data = data.predicted_levels;
-                        predictionChart.update();
+                    // Update Labels
+                    predictionChart.data.labels = data.labels;
 
-                        // Update display waktu habis
-                        const emptyTimeText = document.getElementById('empty-time-text');
-                        if (data.empty_time_formatted) {
-                            if (data.empty_time_formatted.includes('Stabil')) {
-                                emptyTimeText.innerText = data.empty_time_formatted;
-                                emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-slate-50 border border-slate-200 rounded-lg';
-                                emptyTimeText.className = 'text-sm font-semibold text-slate-600';
-                            } else {
-                                emptyTimeText.innerHTML = 'Akan habis pada: <span class="text-rose-600">' + data.empty_time_formatted + '</span>';
-                                emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-rose-50 border border-rose-200 rounded-lg';
-                                emptyTimeText.className = 'text-sm font-semibold text-rose-700';
-                            }
+                    // Update Dataset 0 (Histori)
+                    predictionChart.data.datasets[0].data = data.history;
+
+                    // Update Dataset 1 (Prediksi)
+                    predictionChart.data.datasets[1].data = data.prediction;
+
+                    predictionChart.update();
+
+                    // Update Teks Info di bawah grafik
+                    const emptyTimeText = document.getElementById('empty-time-text');
+                    if (data.empty_time_formatted) {
+                        if (data.empty_time_formatted === 'Stabil') {
+                            emptyTimeText.innerText = "Konsumsi air stabil / tidak ada penurunan.";
+                            emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-slate-50 border border-slate-200 rounded-lg';
+                            emptyTimeText.className = 'text-sm font-semibold text-slate-600';
                         } else {
-                            emptyTimeText.innerText = 'Menghitung prediksi...';
+                            emptyTimeText.innerHTML = 'Perkiraan habis: <span class="font-bold text-rose-600">' + data.empty_time_formatted + '</span>';
+                            emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-rose-50 border border-rose-200 rounded-lg';
+                            emptyTimeText.className = 'text-sm font-semibold text-rose-700';
                         }
-                    } else {
-                        // Tidak ada data
-                        const emptyTimeText = document.getElementById('empty-time-text');
-                        emptyTimeText.innerText = 'Belum ada data prediksi yang cukup';
-                        emptyTimeText.parentElement.parentElement.className = 'mt-3 p-3 text-center bg-slate-50 border border-slate-200 rounded-lg';
-                        emptyTimeText.className = 'text-sm font-semibold text-slate-600';
                     }
                 } catch (error) {
                     console.error('Error fetching prediction chart:', error);

@@ -155,66 +155,90 @@ class DashboardController extends Controller
 
     /**
      * 5. API Internal untuk grafik prediksi waktu habis (Linear Regression Trend)
-     * Format: Sumbu X = jam ke depan, Sumbu Y = level air (%), seperti prediksi baterai smartphone
+     * Format: Sumbu X = jam ke depan, Sumbu Y = level air (%)
      */
     public function getTimePredictionChart()
     {
-        // Ambil data terbaru dan prediksi terakhir
-        $latest = SensorData::latest()->first();
-        $latestPrediction = Prediction::where('predicted_hours', '>', 0)
-            ->latest()
-            ->first();
+        // 1. Ambil Data Histori (Misal: 12 Jam terakhir)
+        // Kita ambil per jam agar grafik tidak terlalu padat
+        $historyData = SensorData::selectRaw('DATE_FORMAT(created_at, "%H:00") as time, AVG(water_level) as level')
+            ->where('created_at', '>=', now()->subHours(12))
+            ->groupBy('time')
+            ->orderBy('created_at') // Urutkan berdasarkan waktu
+            ->get();
 
-        if (!$latest || !$latestPrediction) {
+        // 2. Siapkan Data Prediksi
+        $latest = SensorData::latest()->first();
+        $latestPrediction = Prediction::where('predicted_hours', '>', 0)->latest()->first();
+
+        // Default jika data kosong
+        if (!$latest || $historyData->isEmpty()) {
             return response()->json([
                 'labels' => [],
-                'predicted_levels' => [],
-                'empty_time' => null,
-                'empty_time_formatted' => null,
+                'history' => [],
+                'prediction' => [],
+                'empty_time_formatted' => 'Data tidak cukup'
             ]);
         }
 
         $currentLevel = $latest->water_level;
-        $depletionRate = abs($latestPrediction->predicted_rate ?? 0); // Rate penurunan per jam (%/jam)
+        // Gunakan rate prediksi, atau fallback ke rate sensor terakhir jika valid
+        $depletionRate = abs($latestPrediction->predicted_rate ?? ($latest->depletion_rate ?? 0));
 
-        // Jika rate terlalu kecil atau tidak ada, return kosong
-        if ($depletionRate < 0.1) {
-            return response()->json([
-                'labels' => [],
-                'predicted_levels' => [],
-                'empty_time' => null,
-                'empty_time_formatted' => 'Stabil (tidak ada penurunan signifikan)',
-            ]);
+        // Siapkan Array untuk Chart.js
+        $labels = [];
+        $historyPoints = [];
+        $predictionPoints = [];
+
+        // A. MASUKKAN DATA HISTORI KE ARRAY
+        foreach ($historyData as $data) {
+            $labels[] = $data->time;
+            $historyPoints[] = round($data->level, 1);
+            $predictionPoints[] = null; // Bagian histori, prediksi null
         }
 
-        // Hitung kapan air habis (level = 0)
-        $hoursUntilEmpty = $currentLevel / $depletionRate;
-        $emptyTime = now()->addHours($hoursUntilEmpty);
+        // B. TITIK SAMBUNG (PENTING: Agar garis nyambung, titik "Sekarang" ada di kedua dataset)
+        $nowLabel = now()->format('H:i');
 
-        // Generate data untuk grafik: prediksi level setiap jam sampai habis
-        $labels = [];
-        $predictedLevels = [];
-        $maxHours = min(48, ceil($hoursUntilEmpty) + 2); // Maksimal 48 jam atau sampai habis + 2 jam buffer
+        // Hapus titik terakhir histori agar kita bisa replace dengan data real-time 'Sekarang'
+        // supaya grafiknya akurat saat ini
+        if (!empty($labels)) {
+            array_pop($labels);
+            array_pop($historyPoints);
+            array_pop($predictionPoints);
+        }
 
-        for ($hour = 0; $hour <= $maxHours; $hour++) {
-            $predictedLevel = max(0, $currentLevel - ($depletionRate * $hour));
+        $labels[] = "Sekarang";
+        $historyPoints[] = $currentLevel;
+        $predictionPoints[] = $currentLevel; // Titik awal prediksi dimulai dari level sekarang
 
-            $labels[] = $hour . 'h';
-            $predictedLevels[] = round($predictedLevel, 2);
+        // C. GENERATE PREDIKSI MASA DEPAN
+        $emptyTimeFormatted = 'Stabil';
 
-            // Stop jika sudah mencapai 0
-            if ($predictedLevel <= 0) {
-                break;
+        if ($depletionRate > 0.1) {
+            $hoursUntilEmpty = $currentLevel / $depletionRate;
+            $emptyTime = now()->addHours($hoursUntilEmpty);
+            $emptyTimeFormatted = $emptyTime->format('d M, H:i');
+
+            $maxHours = min(24, ceil($hoursUntilEmpty) + 2); // Batasi max 24 jam ke depan visualnya
+
+            for ($h = 1; $h <= $maxHours; $h++) {
+                $futureTime = now()->addHours($h)->format('H:00');
+                $predictedLevel = max(0, $currentLevel - ($depletionRate * $h));
+
+                $labels[] = $futureTime;
+                $historyPoints[] = null; // Bagian masa depan, histori null
+                $predictionPoints[] = round($predictedLevel, 1);
+
+                if ($predictedLevel <= 0) break;
             }
         }
 
         return response()->json([
             'labels' => $labels,
-            'predicted_levels' => $predictedLevels,
-            'empty_time' => $emptyTime->toIso8601String(),
-            'empty_time_formatted' => $emptyTime->format('d M Y, H:i'),
-            'current_level' => $currentLevel,
-            'depletion_rate' => $depletionRate,
+            'history' => $historyPoints,         // Dataset 1 (Solid)
+            'prediction' => $predictionPoints,   // Dataset 2 (Dashed)
+            'empty_time_formatted' => $emptyTimeFormatted
         ]);
     }
 
