@@ -33,8 +33,8 @@ Ikuti langkah-langkah berikut untuk menjalankan project di local environment:
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/username/project-iot-water.git
-cd project-iot-water
+git clone https://github.com/rizkywahyudiii/water-monitoring.git
+cd water-monitoring
 
 composer install
 cp .env.example .env
